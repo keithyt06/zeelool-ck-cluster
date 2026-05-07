@@ -15,32 +15,31 @@ Terraform + SSM 打造的自管 ClickHouse 集群：**1 shard × 2 replica CK + 
 
 ## 从零部署（完整流程见 CUSTOMER-ONBOARDING.md）
 
-**前置（一次性手工）**：在目标 region 建好 VPC + **最少 2 个私有子网**（默认 2-AZ 布局；要 3-AZ 对称容错就建 3 个）。**不再需要手工建 state bucket / 锁表** —— 下一步 `terraform/bootstrap/` 自动创。
+**前置（一次性手工）**：目标 region 建好 VPC + **最少 2 个私有子网**（默认 2-AZ；3-AZ 对称容错就建 3 个）。**不需要手工建 state bucket** —— `terraform/bootstrap/` 自动创（用 S3 native lock file，不再依赖 DynamoDB）。
 
 ```bash
 export AWS_PROFILE=default
 
-# 1. Bootstrap state backend（S3 + DynamoDB，首次唯一一次）
-cd terraform/bootstrap
-cp terraform.tfvars.example terraform.tfvars    # 默认值 OK，不改也行
-terraform init
-terraform apply
-terraform output -raw backend_hcl > ../envs/prod/backend.hcl   # 喂给主栈
+# 一次性：填两个 tfvars（只改必填项）
+cp terraform/bootstrap/terraform.tfvars.example terraform/bootstrap/terraform.tfvars
+cp terraform/envs/prod/terraform.tfvars.example terraform/envs/prod/terraform.tfvars
+$EDITOR terraform/envs/prod/terraform.tfvars   # 填 vpc_id + private_subnet_ids
 
-# 2. 主栈 tfvars
-cd ../envs/prod
-cp terraform.tfvars.example terraform.tfvars
-$EDITOR terraform.tfvars                                      # 填 vpc_id / private_subnet_ids
-
-# 3. 部署基础设施（~5 分钟）
-terraform init -backend-config=backend.hcl
-terraform plan -out=p.plan
-terraform apply p.plan
-
-# 4. 一条命令装完 Keeper + CK 二进制、渲染配置、生成密码、跑 smoke
-cd ../..
-./scripts/bootstrap-post-apply.sh
+# 一键部署（包含 preflight + bootstrap + apply + CK 软件 + smoke，~10 分钟）
+./deploy.sh
 ```
+
+就这 3 条命令。`deploy.sh` 内部包含：
+
+1. **`preflight.sh`** —— 校验 AWS 凭据、terraform ≥ 1.10、tfvars 存在、VPC/subnet 真的在目标 region
+2. **`terraform/bootstrap apply`** —— 创 S3 state bucket（S3 native locking via `use_lockfile = true`），输出 `backend.hcl`
+3. **`terraform/envs/prod apply`** —— 50+ 资源（EC2 × 5 + EBS + NLB + IAM + SG + SSM × 7 + S3 + EventBridge + CW Alarm × 3）
+4. **`scripts/bootstrap-post-apply.sh`** —— 7 步装 Keeper/CK、生密码、渲染 config
+5. **`scripts/smoke.sh`** —— 7 项验证
+
+加 `--auto-approve` 跳过 apply 确认；加 `--skip-preflight` 用于 CI。
+
+**展开 4 阶段手动部署**（debug 用），见 [docs/CUSTOMER-ONBOARDING.md](docs/CUSTOMER-ONBOARDING.md)。
 
 `bootstrap-post-apply.sh` 7 步全程幂等，中断可重跑。完成后集群即可接受 `clickhouse-client` 连接（VPC 内）。
 
@@ -126,26 +125,38 @@ scripts/
 4. **`AWS_PROFILE` 环境变量优先级** —— backend 没硬编码 profile，`AWS_PROFILE=cc` 等环境变量会压过意图。deploy 前务必 `export AWS_PROFILE=default`（或直接 `AWS_PROFILE=default terraform apply`），否则 403 Forbidden 访问 state bucket。
 5. **2-AZ Keeper 分布是 asymmetric FT** —— 默认配置里 2 个 Keeper 放在同一个 AZ（省 AZ 数量），这个 AZ 挂了 quorum 直接破。对外说集群 SLA 时按"主 AZ 为单点"算。真要"任意 AZ 可挂"，tfvars 里把 keeper_placement 改成 3 AZ 各 1 台，同时 `private_subnet_ids` 也补成 3 个。
 
-## 部署快速通道（profile=default，东京）
+## 部署快速通道
+
+### 一键（推荐）
 
 ```bash
-# 环境变量先于 terraform/scripts 生效 —— 不 export 的话，shell 里其他 profile 会抢
+export AWS_PROFILE=default                         # 或你的 profile
+./deploy.sh --auto-approve                         # preflight + bootstrap + apply + CK + smoke
+```
+
+### 分阶段（调试 / 想逐步看 plan）
+
+```bash
 export AWS_PROFILE=default
 
-# 首次唯一：创 state backend（S3 bucket + DynamoDB lock 表）
+# Phase 0: 预检
+./preflight.sh
+
+# Phase 1: state backend
 cd terraform/bootstrap
 terraform init
-terraform apply -auto-approve
+terraform apply
 terraform output -raw backend_hcl > ../envs/prod/backend.hcl
 
-# 主栈
+# Phase 2: 主栈
 cd ../envs/prod
-terraform init -backend-config=backend.hcl    # 首次需要 -backend-config，之后 plain terraform
+terraform init -backend-config=backend.hcl
 terraform plan -out=p.plan
 terraform apply p.plan
 
+# Phase 3: CK 软件
 cd ../..
-ACK_PASSWORD_SAVED=1 ./scripts/bootstrap-post-apply.sh  # 非交互跳过 press-Enter
+ACK_PASSWORD_SAVED=1 ./scripts/bootstrap-post-apply.sh
 ./scripts/smoke.sh
 ```
 

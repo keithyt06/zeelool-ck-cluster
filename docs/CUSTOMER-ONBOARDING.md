@@ -46,27 +46,27 @@ aws --region <region> ec2 describe-subnets \
 
 ### 0.2 Terraform state backend（S3 + DynamoDB）
 
-Terraform 状态文件要存远端（S3 bucket + DynamoDB lock 表）。**只需建一次，后续所有部署复用。** v2 把这一步也纳入 terraform 管理 —— 跑 `terraform/bootstrap/` 模块自动创，不用手搓 AWS CLI。
+Terraform 状态文件要存远端。**只需建一次，后续所有部署复用。** v3 把这一步纳入 terraform 管理 —— 跑 `terraform/bootstrap/` 模块自动创 S3 state bucket（lock 走 S3 native `use_lockfile=true`，**不再需要 DynamoDB**，符合 Terraform 1.10+ 官方推荐）。
 
 ```bash
 export AWS_PROFILE=default                  # 或你自己的 profile
 cd terraform/bootstrap
 
-# 默认值（bucket=<prefix>-tfstate-<region>、table=<prefix>-tflock）一般够用。
-# 要改 region / profile / name_prefix 就 cp example 到 tfvars 填：
+# 默认（bucket=<prefix>-tfstate-<region>）一般够用。改 region/prefix 就 cp 模板：
 cp terraform.tfvars.example terraform.tfvars
 $EDITOR terraform.tfvars
 
 terraform init
-terraform apply                             # 创 S3 bucket + versioning + SSE + PAB + DDB 表
+terraform apply                             # 创 S3 bucket + versioning + SSE + PAB（无 DDB）
 
-# 把 backend 参数写到 envs/prod/backend.hcl（主栈 init 时读这个）
 terraform output -raw backend_hcl > ../envs/prod/backend.hcl
 ```
 
-就这一步。**envs/prod/provider.tf 的 backend 块现在是空的**（partial backend），所有参数通过 `-backend-config=backend.hcl` 注入 —— 客户零改模块代码。
+**envs/prod/provider.tf 的 backend 块是空的**（partial backend），参数通过 `-backend-config=backend.hcl` 注入 —— 客户零改模块代码。
 
-> **为什么需要本地 state 的 bootstrap 层**：state backend 是一个 bootstrap 问题 —— 你不能把"创建 state bucket"本身的 state 存在那个 bucket 里。bootstrap 模块用 local state（`terraform.tfstate` 在 `terraform/bootstrap/` 下），内容只是 bucket/表 ID，不敏感，提不提交都行。
+> **为什么需要本地 state 的 bootstrap 层**：state backend 是 chicken-and-egg —— 不能把"创建 state bucket"的 state 存在那个 bucket 里。这是 [HashiCorp 官方文档](https://developer.hashicorp.com/terraform/language/backend/s3) 明确描述的模式，社区通用做法（参考 `nozaq/terraform-aws-remote-state-s3-backend` 等 178+ star 的社区模块）。
+
+> **一键版**：repo 顶层的 `./deploy.sh` 把这一步和后面阶段 1-4 全自动化。想逐步观察就走下面的手动步骤。
 
 ### 0.3 （可选）EC2 KeyPair
 

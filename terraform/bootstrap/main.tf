@@ -33,12 +33,6 @@ locals {
     ? var.state_bucket_name
     : "${var.name_prefix}-tfstate-${data.aws_region.current.region}"
   )
-
-  effective_lock_table_name = (
-    var.lock_table_name != ""
-    ? var.lock_table_name
-    : "${var.name_prefix}-tflock"
-  )
 }
 
 resource "aws_s3_bucket" "tfstate" {
@@ -80,20 +74,9 @@ resource "aws_s3_bucket_public_access_block" "tfstate" {
   restrict_public_buckets = true
 }
 
-resource "aws_dynamodb_table" "tflock" {
-  name         = local.effective_lock_table_name
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "LockID"
-
-  attribute {
-    name = "LockID"
-    type = "S"
-  }
-
-  # Same guard as the S3 bucket — losing this table corrupts state locking.
-  lifecycle {
-    prevent_destroy = true
-  }
-
-  tags = { Name = local.effective_lock_table_name }
-}
+# No DynamoDB lock table — we use S3 native locking (`use_lockfile = true`)
+# in backend.hcl. HashiCorp has deprecated `dynamodb_table` in favor of the
+# S3-native lock file since Terraform 1.10; it also drops the second AWS
+# resource and its IAM policy footprint. Backwards-compat only: if you
+# already have a DDB table from an older deploy, keep using it via the
+# `dynamodb_table` backend arg until you migrate.

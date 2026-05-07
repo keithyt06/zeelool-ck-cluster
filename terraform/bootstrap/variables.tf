@@ -22,12 +22,6 @@ variable "state_bucket_name" {
   description = "S3 bucket for Terraform remote state. Empty = auto-name as '<name_prefix>-tfstate-<region>' (e.g. zeelool-ck-tfstate-ap-northeast-1, zeelool-ck-tfstate-us-west-2). S3 bucket names are globally unique — override when you need a company convention or the default collides."
 }
 
-variable "lock_table_name" {
-  type        = string
-  default     = ""
-  description = "DynamoDB table for Terraform state locking. Empty = auto-name as '<name_prefix>-tflock'. Account-scoped — collisions are rare."
-}
-
 variable "owner" {
   type    = string
   default = "keith"

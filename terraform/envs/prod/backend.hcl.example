@@ -12,13 +12,28 @@
 # `backend.hcl` is gitignored.
 # ============================================================================
 
-# Replace <region> with your AWS region, e.g.:
-#   ap-northeast-1 (Tokyo) → bucket = "zeelool-ck-tfstate-ap-northeast-1"
-#   us-west-2      (Oregon)→ bucket = "zeelool-ck-tfstate-us-west-2"
-# Or simpler: `terraform -chdir=../bootstrap output -raw backend_hcl > backend.hcl`
-# will render every value correctly for your deploy.
-bucket         = "zeelool-ck-tfstate-<region>"
-key            = "envs/prod/terraform.tfstate"
-region         = "<region>"
-dynamodb_table = "zeelool-ck-tflock"
-encrypt        = true
+# Fill in:
+#   <name_prefix> — same value you use for var.name_prefix in envs/prod/tfvars.
+#                   Default "zeelool-ck"; change to your company/project code
+#                   (acme-ck, ctrip-ck, etc.) for your own deploy.
+#   <region>      — your AWS region, e.g. ap-northeast-1, us-west-2, eu-west-1.
+#
+# Examples for 3 common regions:
+#   Tokyo:  bucket = "acme-ck-tfstate-ap-northeast-1"  region = "ap-northeast-1"
+#   Oregon: bucket = "acme-ck-tfstate-us-west-2"       region = "us-west-2"
+#   Dublin: bucket = "acme-ck-tfstate-eu-west-1"       region = "eu-west-1"
+#
+# ZERO-EDIT PATH: skip filling in manually — just run
+#   terraform -chdir=../bootstrap output -raw backend_hcl > backend.hcl
+# after `terraform apply` in bootstrap/. That command emits exactly the
+# 5 lines below with the real values substituted.
+#
+# `use_lockfile = true` is S3 native locking (Terraform 1.10+). We do NOT
+# use the deprecated `dynamodb_table` arg — one fewer AWS resource to
+# manage + fewer IAM permissions needed.
+
+bucket       = "<name_prefix>-tfstate-<region>"
+key          = "envs/prod/terraform.tfstate"
+region       = "<region>"
+use_lockfile = true
+encrypt      = true
