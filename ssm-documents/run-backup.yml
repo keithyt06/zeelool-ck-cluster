@@ -1,0 +1,41 @@
+schemaVersion: "2.2"
+description: "Trigger ClickHouse BACKUP TO S3 (full or incremental). Backs up ALL user databases — no table name pre-wiring."
+parameters:
+  BucketName:
+    type: String
+  BackupType:
+    type: String
+    default: "incremental"
+    allowedValues: ["full", "incremental"]
+  BackupDate:
+    type: String
+    description: "YYYY-MM-DD, typically from EventBridge schedule context"
+mainSteps:
+  - name: runBackup
+    action: aws:runShellScript
+    inputs:
+      runCommand:
+        - "set -euxo pipefail"
+        - 'S3_BASE="s3://{{ BucketName }}"'
+        - 'BACKUP_TYPE="{{ BackupType }}"'
+        - 'BACKUP_DATE="{{ BackupDate }}"'
+        # Backup target: ALL user databases. system + INFORMATION_SCHEMA views are excluded
+        # (system state is derived, INFORMATION_SCHEMA is a view). If CK has no user data yet
+        # this still produces a tiny but valid backup of empty-default — safe no-op.
+        - 'BACKUP_STMT="BACKUP ALL EXCEPT DATABASE system, DATABASE INFORMATION_SCHEMA, DATABASE information_schema"'
+        - |
+          if [ "${BACKUP_TYPE}" = "full" ]; then
+            TARGET="${S3_BASE}/full/${BACKUP_DATE}/"
+            clickhouse-client --query "${BACKUP_STMT} TO S3('${TARGET}') SETTINGS compression_method='zstd', compression_level=3"
+          else
+            LAST_FULL=$(aws s3 ls "${S3_BASE}/full/" 2>/dev/null | awk '{print $2}' | sed 's|/$||' | sort | tail -n 1)
+            if [ -z "${LAST_FULL}" ]; then
+              echo "no full backup yet; running full instead of incremental"
+              TARGET="${S3_BASE}/full/${BACKUP_DATE}/"
+              clickhouse-client --query "${BACKUP_STMT} TO S3('${TARGET}') SETTINGS compression_method='zstd', compression_level=3"
+            else
+              TARGET="${S3_BASE}/incremental/${BACKUP_DATE}/"
+              BASE="${S3_BASE}/full/${LAST_FULL}/"
+              clickhouse-client --query "${BACKUP_STMT} TO S3('${TARGET}') SETTINGS compression_method='zstd', compression_level=3, base_backup=S3('${BASE}')"
+            fi
+          fi

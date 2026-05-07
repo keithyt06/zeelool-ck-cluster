@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euxo pipefail
+
+# Set hostname
+hostnamectl set-hostname ${name}
+echo "127.0.1.1 ${name}" >> /etc/hosts
+
+# SSM Agent is pre-installed on AL2023, just ensure enabled
+systemctl enable --now amazon-ssm-agent || true
+
+# Tag readiness for SSM State Manager targeting
+touch /var/log/cloud-init-bootstrap.done

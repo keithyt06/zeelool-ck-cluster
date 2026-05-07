@@ -1,0 +1,18 @@
+schemaVersion: "2.2"
+description: "Install ClickHouse Server 25.3 on Amazon Linux 2023 ARM64"
+parameters:
+  ClickHouseVersion:
+    type: String
+    default: "25.3.2.39"
+mainSteps:
+  - name: installClickHouse
+    action: aws:runShellScript
+    inputs:
+      runCommand:
+        - "set -euxo pipefail"
+        - 'if rpm -q clickhouse-server >/dev/null 2>&1; then echo "already installed"; exit 0; fi'
+        - "dnf install -y yum-utils"
+        - "dnf config-manager --add-repo https://packages.clickhouse.com/rpm/clickhouse.repo"
+        - "dnf install -y --enablerepo=clickhouse-lts clickhouse-server-{{ ClickHouseVersion }} clickhouse-client-{{ ClickHouseVersion }} clickhouse-common-static-{{ ClickHouseVersion }}"
+        - "systemctl daemon-reload"
+        - "systemctl enable clickhouse-server"

@@ -1,0 +1,14 @@
+schemaVersion: "2.2"
+description: "Apply ClickHouse schema (DDL). Parameter is always base64-encoded to avoid shell-quoting issues."
+parameters:
+  DdlSqlB64:
+    type: String
+    default: "U0VMRUNUICdzY2hlbWEgZGRsIG5vdCB5ZXQgZGVmaW5lZCc="
+    description: "Base64-encoded DDL SQL. Default decodes to a no-op SELECT until Phase 5."
+mainSteps:
+  - name: applySchema
+    action: aws:runShellScript
+    inputs:
+      runCommand:
+        - "set -euxo pipefail"
+        - "echo '{{ DdlSqlB64 }}' | base64 -d | clickhouse-client --multiquery"

@@ -1,0 +1,39 @@
+schemaVersion: "2.2"
+description: "Render ClickHouse config.d/*.xml, users.d/*.xml and restart clickhouse-server"
+parameters:
+  RemoteServersXml:
+    type: String
+    description: "base64 of remote-servers.xml"
+  ZookeeperXml:
+    type: String
+    description: "base64 of zookeeper.xml (points to Keeper ensemble)"
+  MacrosXml:
+    type: String
+    description: "base64 of macros.xml (shard/replica identity)"
+  UsersXml:
+    type: String
+    description: "base64 of users.d/default-user.xml"
+  InterserverXml:
+    type: String
+    description: "base64 of interserver.xml (per-node interserver_http_host = this node's private IP)"
+  ListenXml:
+    type: String
+    description: "base64 of listen.xml (listen_host + listen_try). Shared across all nodes."
+mainSteps:
+  - name: writeConfigs
+    action: aws:runShellScript
+    inputs:
+      runCommand:
+        - "set -euxo pipefail"
+        - "mkdir -p /etc/clickhouse-server/config.d /etc/clickhouse-server/users.d"
+        - "echo '{{ RemoteServersXml }}' | base64 -d > /etc/clickhouse-server/config.d/remote-servers.xml"
+        - "echo '{{ ZookeeperXml }}' | base64 -d > /etc/clickhouse-server/config.d/zookeeper.xml"
+        - "echo '{{ MacrosXml }}' | base64 -d > /etc/clickhouse-server/config.d/macros.xml"
+        - "echo '{{ InterserverXml }}' | base64 -d > /etc/clickhouse-server/config.d/interserver.xml"
+        - "echo '{{ ListenXml }}' | base64 -d > /etc/clickhouse-server/config.d/listen.xml"
+        - "echo '{{ UsersXml }}' | base64 -d > /etc/clickhouse-server/users.d/default-user.xml"
+        - "chown -R clickhouse:clickhouse /etc/clickhouse-server"
+        - "systemctl restart clickhouse-server"
+        - "sleep 5"
+        - "systemctl is-active clickhouse-server"
+        - "clickhouse-client --query 'SELECT 1'"

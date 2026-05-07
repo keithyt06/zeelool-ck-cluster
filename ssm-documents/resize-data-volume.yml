@@ -1,0 +1,14 @@
+schemaVersion: "2.2"
+description: "Grow the ClickHouse data filesystem after an EBS ModifyVolume. Online — no service restart."
+mainSteps:
+  - name: resizeFilesystem
+    action: aws:runShellScript
+    inputs:
+      runCommand:
+        - "set -euxo pipefail"
+        # The data volume is labeled 'clickhouse-data' at format time in user_data.
+        - 'DEV=$(blkid -L clickhouse-data)'
+        - 'if [ -z "$DEV" ]; then echo "ERROR: no volume labeled clickhouse-data"; exit 1; fi'
+        - 'echo "Before:"; df -h /var/lib/clickhouse; lsblk "$DEV"'
+        - 'resize2fs "$DEV"'
+        - 'echo "After:"; df -h /var/lib/clickhouse; lsblk "$DEV"'

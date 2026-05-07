@@ -1,0 +1,38 @@
+<clickhouse>
+    <logger>
+        <level>information</level>
+        <log>/var/log/clickhouse-keeper/clickhouse-keeper.log</log>
+        <errorlog>/var/log/clickhouse-keeper/clickhouse-keeper.err.log</errorlog>
+        <size>100M</size>
+        <count>10</count>
+    </logger>
+
+    <listen_host>0.0.0.0</listen_host>
+    <max_connections>4096</max_connections>
+
+    <keeper_server>
+        <server_id>${server_id}</server_id>
+        <tcp_port>9181</tcp_port>
+        <log_storage_path>/var/lib/clickhouse-keeper/coordination/log</log_storage_path>
+        <snapshot_storage_path>/var/lib/clickhouse-keeper/coordination/snapshots</snapshot_storage_path>
+
+        <coordination_settings>
+            <operation_timeout_ms>10000</operation_timeout_ms>
+            <session_timeout_ms>30000</session_timeout_ms>
+            <raft_logs_level>information</raft_logs_level>
+            <snapshot_distance>10000</snapshot_distance>
+            <reserved_log_items>1000</reserved_log_items>
+            <auto_forwarding>true</auto_forwarding>
+        </coordination_settings>
+
+        <raft_configuration>
+%{ for peer in peers ~}
+            <server>
+                <id>${peer.id}</id>
+                <hostname>${peer.ip}</hostname>
+                <port>9234</port>
+            </server>
+%{ endfor ~}
+        </raft_configuration>
+    </keeper_server>
+</clickhouse>

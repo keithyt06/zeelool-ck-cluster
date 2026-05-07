@@ -1,0 +1,24 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+# Never commit real tfvars — customer-specific VPC/subnet/bucket IDs belong
+# in terraform.tfvars (gitignored). The *.example file is the committed template.
+terraform.tfvars
+*.tfvars.local
+.terraform.lock.hcl
+tfplan
+p.plan
+
+# Secrets
+*.pem
+*.key
+credentials
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

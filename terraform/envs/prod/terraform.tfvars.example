@@ -1,0 +1,130 @@
+# ============================================================================
+# Customer-facing config — copy to terraform.tfvars and edit.
+#
+# Anything commented out uses a default that matches Keith's validation
+# deployment. Uncomment and change to retarget the stack.
+# ============================================================================
+
+# ---------- REQUIRED ----------
+
+# AWS region to deploy into. CK + Keeper + NLB + S3 bucket + SSM Documents all
+# land here. Choose the one nearest your MSK/writers and your BI tools.
+# region = "ap-southeast-1"
+
+# Existing VPC you want to deploy into (the stack does NOT create a VPC).
+# CIDR is discovered automatically — any CIDR (10.0/172.16/192.168) works.
+vpc_id = "vpc-XXXXXXXXXXXXXXXXX"
+
+# Private subnets — at least 3 AZs for Keeper quorum, 2 for CK replicas.
+# Keys are logical AZ names you choose (az1a/az1b/az1c is conventional).
+# Each key must map to an actual subnet ID in your VPC.
+#
+# Ensure every listed subnet has a route to the internet (NAT or public IP) OR
+# a VPC endpoint for SSM (ssm, ssmmessages, ec2messages) — cloud-init and
+# SSM Agent can't bootstrap otherwise. This project creates the S3 gateway
+# endpoint for you, but NOT the SSM interface endpoints.
+private_subnet_ids = {
+  "az1a" = "subnet-XXXXXXXXXXXXXXXXX"
+  "az1c" = "subnet-XXXXXXXXXXXXXXXXX"
+  "az1d" = "subnet-XXXXXXXXXXXXXXXXX"
+}
+
+# Private Route53 hosted zone that will host `clickhouse.<zone>` pointing at
+# the internal NLB. Will be CREATED if absent. Use a domain you control.
+# private_hosted_zone_name = "internal.acme.com"
+
+# ---------- IDENTITY / TAGGING ----------
+
+# Used as a prefix on every named resource (IAM roles, SGs, NLB, EventBridge
+# rules, default S3 bucket). Change this when running multiple copies in the
+# same AWS account — IAM role and bucket names are globally scoped.
+# name_prefix = "acme-ck"
+
+# ClickHouse internal cluster identifier. Can't contain '-' (CK limitation).
+# cluster_name = "acme_ck"
+
+# owner       = "data-platform"
+# environment = "prod"
+# extra_tags  = { CostCenter = "analytics", Compliance = "none" }
+
+# ---------- TOPOLOGY ----------
+
+# Each entry is a CK Keeper node. The key becomes the EC2 Name tag AND the
+# hostname. subnet_key must be a key from private_subnet_ids above.
+# 3 Keepers in 3 AZs = survive 1 AZ loss.
+# keeper_placement = {
+#   "keeper-01" = { subnet_key = "az1a", server_id = 1 }
+#   "keeper-02" = { subnet_key = "az1c", server_id = 2 }
+#   "keeper-03" = { subnet_key = "az1d", server_id = 3 }
+# }
+
+# Each entry is a CK replica. The key becomes both hostname and macros.replica.
+# 2 replicas in 2 AZs = survive 1 AZ loss. Scale up by adding ck-03/04/...
+# clickhouse_placement = {
+#   "ck-01" = { subnet_key = "az1a" }
+#   "ck-02" = { subnet_key = "az1c" }
+# }
+
+# ---------- PRIVATE IPs ----------
+
+# Auto-computed via cidrhost(subnet_cidr, offset) by default:
+#   Keeper = subnet + offset 100  (e.g. 10.0.11.0/24 -> 10.0.11.100)
+#   CK     = subnet + offset 200  (e.g. 10.0.11.0/24 -> 10.0.11.200)
+# Tweak offsets if those IPs collide with other workloads in your subnets.
+# keeper_ip_host_offset     = 100
+# clickhouse_ip_host_offset = 200
+#
+# Or pin specific IPs (must be inside the subnet CIDR and unreserved by AWS):
+# keeper_private_ips_override = {
+#   "keeper-01" = "10.0.11.50"
+#   ...
+# }
+
+# ---------- SIZING ----------
+
+# Keeper is lightweight — Raft + metadata, ~1% of CK traffic. Upshift only
+# if you run >50 replicated tables or very high mutation rates.
+# keeper_instance_type = "t4g.small"
+
+# ClickHouse — memory-optimized (Graviton4, 8 GB/vCPU) is strongly recommended.
+# Options (Tokyo on-demand / month / node):
+#   r8g.large     (2 vCPU / 16 GB)  ~$95   — MVP / <100M rows/day
+#   r8g.xlarge    (4 vCPU / 32 GB)  ~$208  — standard, 100M-500M rows/day
+#   r8g.2xlarge   (8 vCPU / 64 GB)  ~$416  — heavy BI, >500M rows/day
+# Don't use m8g (4 GB/vCPU) — CK's docs call for 8:1 on warehousing workloads.
+# clickhouse_instance_type = "r8g.xlarge"
+
+# ---------- EBS DATA VOLUME ----------
+
+# Per-node data volume size (gp3). Online-expandable. See plan Appendix C.
+# clickhouse_data_volume_gb = 1500
+
+# Override gp3 baseline (3000 IOPS / 125 MB/s) if ingest + merges saturate.
+# Inspect `iostat -x` on a CK node: %util > 80% consistently = bump.
+# clickhouse_data_volume_iops            = 4500  # 3000-16000
+# clickhouse_data_volume_throughput_mbps = 250   # 125-1000
+
+# ---------- SSH ACCESS ----------
+
+# AWS EC2 KeyPair name (just the name — the .pem file lives OUTSIDE this repo,
+# never commit private keys). null = no key attached, SSM Session Manager only.
+#
+# NOTE: `key_name` is a force-new EC2 attribute. Setting this on a fresh deploy
+# attaches the key at create time. On an ALREADY-RUNNING cluster, Terraform
+# will NOT recreate instances (they have `ignore_changes = [key_name]`) — run
+# `scripts/install-ssh-public-key.sh <path-to-pem>` instead to retrofit the
+# public key via SSM without touching the instances.
+# ssh_key_name = "my-ec2-keypair"
+
+# ---------- BACKUP ----------
+
+# Leave empty to auto-name as '<name_prefix>-backup-<account_id>-<region>'
+# (globally unique by construction). Pin a specific name if you have a
+# company naming convention or a pre-existing bucket.
+# backup_bucket_name = "acme-ck-backup"
+
+# ---------- AWS AUTH ----------
+
+# Empty = use AWS_PROFILE env or instance profile / SSO. Set only if you have
+# a reason to pin a named profile in tfvars.
+# profile = "my-named-profile"

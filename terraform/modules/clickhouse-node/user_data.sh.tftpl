@@ -1,0 +1,37 @@
+#!/bin/bash
+set -euxo pipefail
+
+hostnamectl set-hostname ${name}
+echo "127.0.1.1 ${name}" >> /etc/hosts
+
+# Wait for the attached data volume (NVMe enumeration can race cloud-init)
+DATA_DEV=""
+for _ in {1..30}; do
+  # Pick the first NVMe device that is NOT the root disk.
+  ROOT_DEV=$(lsblk -no PKNAME "$(findmnt -n -o SOURCE /)" 2>/dev/null || true)
+  CANDIDATE=$(lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}' | grep -v "^$ROOT_DEV$" | head -n1 || true)
+  if [ -n "$CANDIDATE" ] && [ -b "/dev/$CANDIDATE" ]; then
+    DATA_DEV="/dev/$CANDIDATE"
+    break
+  fi
+  sleep 2
+done
+if [ -z "$DATA_DEV" ]; then
+  echo "ERROR: data volume not found" >&2
+  exit 1
+fi
+
+# Format only if no filesystem yet (idempotent across reboots)
+if ! blkid "$DATA_DEV" >/dev/null 2>&1; then
+  mkfs.ext4 -L clickhouse-data "$DATA_DEV"
+fi
+
+mkdir -p /var/lib/clickhouse
+if ! grep -q "LABEL=clickhouse-data" /etc/fstab; then
+  echo "LABEL=clickhouse-data /var/lib/clickhouse ext4 defaults,noatime,nodiratime,nofail 0 2" >> /etc/fstab
+fi
+mountpoint -q /var/lib/clickhouse || mount /var/lib/clickhouse
+
+systemctl enable --now amazon-ssm-agent || true
+
+touch /var/log/cloud-init-bootstrap.done

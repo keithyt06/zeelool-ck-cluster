@@ -1,0 +1,19 @@
+schemaVersion: "2.2"
+description: "Install ClickHouse Keeper 25.3 on Amazon Linux 2023 ARM64"
+parameters:
+  KeeperVersion:
+    type: String
+    default: "25.3.2.39"
+    description: "ClickHouse Keeper package version"
+mainSteps:
+  - name: installKeeper
+    action: aws:runShellScript
+    inputs:
+      runCommand:
+        - "set -euxo pipefail"
+        - 'if rpm -q clickhouse-keeper >/dev/null 2>&1; then echo "already installed"; exit 0; fi'
+        - "dnf install -y yum-utils"
+        - "dnf config-manager --add-repo https://packages.clickhouse.com/rpm/clickhouse.repo"
+        - "dnf install -y --enablerepo=clickhouse-lts clickhouse-keeper-{{ KeeperVersion }}"
+        - "systemctl daemon-reload"
+        - "systemctl enable clickhouse-keeper"

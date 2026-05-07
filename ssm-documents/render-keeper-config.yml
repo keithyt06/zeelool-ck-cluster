@@ -1,0 +1,21 @@
+schemaVersion: "2.2"
+description: "Render /etc/clickhouse-keeper/keeper_config.xml and restart service"
+parameters:
+  ConfigXml:
+    type: String
+    description: "Full content of keeper_config.xml (base64-encoded)"
+mainSteps:
+  - name: writeConfig
+    action: aws:runShellScript
+    inputs:
+      runCommand:
+        - "set -euxo pipefail"
+        - "mkdir -p /etc/clickhouse-keeper"
+        - "mkdir -p /var/lib/clickhouse-keeper/coordination/log"
+        - "mkdir -p /var/lib/clickhouse-keeper/coordination/snapshots"
+        - "mkdir -p /var/log/clickhouse-keeper"
+        - "echo '{{ ConfigXml }}' | base64 -d > /etc/clickhouse-keeper/keeper_config.xml"
+        - "chown -R clickhouse:clickhouse /etc/clickhouse-keeper /var/lib/clickhouse-keeper /var/log/clickhouse-keeper"
+        - "systemctl restart clickhouse-keeper"
+        - "sleep 3"
+        - "systemctl is-active clickhouse-keeper"
