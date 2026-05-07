@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>zeelool-ck-cluster — Architecture</title>
+<style>
+  :root {
+    --aws-navy: #232F3E;
+    --aws-navy-2: #2E3D54;
+    --aws-orange: #FF9900;
+    --aws-orange-dim: #ffb347;
+    --text: #16191F;
+    --text-dim: #545B64;
+    --bg: #FFFFFF;
+    --bg-soft: #F7F8FA;
+    --bg-panel: #F2F3F5;
+    --border: #E1E4E8;
+    --success: #16a34a;
+    --warn: #f59e0b;
+    --error: #dc2626;
+    --radius: 12px;
+    --shadow-sm: 0 1px 3px rgba(16,24,40,.06), 0 1px 2px rgba(16,24,40,.04);
+    --shadow: 0 4px 12px rgba(16,24,40,.06), 0 2px 6px rgba(16,24,40,.04);
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+                 "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    font-size: 15px; line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--aws-navy); text-decoration: none; border-bottom: 1px solid var(--aws-orange); }
+  a:hover { color: var(--aws-orange); }
+  code { font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace; font-size: 90%; }
+  code.inline { background: var(--bg-panel); padding: 2px 6px; border-radius: 4px; color: var(--aws-navy); }
+
+  /* --- Layout --- */
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 32px; }
+  section { padding: 56px 0; border-bottom: 1px solid var(--border); }
+  section:last-of-type { border-bottom: none; }
+  h1, h2, h3 { margin: 0 0 16px 0; letter-spacing: -.01em; }
+  h1 { font-size: 34px; font-weight: 700; }
+  h2 { font-size: 24px; font-weight: 650; color: var(--aws-navy); margin-top: 0; }
+  h3 { font-size: 17px; font-weight: 600; }
+  p { margin: 8px 0 16px 0; color: var(--text); }
+  .subtitle { color: var(--text-dim); font-size: 16px; margin-bottom: 8px; }
+  .muted { color: var(--text-dim); }
+
+  /* --- Hero --- */
+  .hero {
+    background: linear-gradient(135deg, var(--aws-navy) 0%, var(--aws-navy-2) 100%);
+    color: white; padding: 72px 0 64px 0; border-bottom: 4px solid var(--aws-orange);
+  }
+  .hero h1 { color: white; }
+  .hero p { color: rgba(255,255,255,0.78); font-size: 17px; max-width: 720px; }
+  .hero .tag {
+    display: inline-block; background: rgba(255,153,0,.14); color: var(--aws-orange);
+    padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    letter-spacing: .04em; text-transform: uppercase; margin-bottom: 16px;
+  }
+  .hero-actions { margin-top: 24px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 18px; border-radius: 8px;
+    font-size: 14px; font-weight: 600; border: 1px solid transparent;
+  }
+  .btn-primary {
+    background: var(--aws-orange); color: var(--aws-navy); border-color: var(--aws-orange);
+  }
+  .btn-primary:hover { background: var(--aws-orange-dim); color: var(--aws-navy); }
+  .btn-ghost {
+    background: transparent; color: white; border-color: rgba(255,255,255,0.3);
+  }
+  .btn-ghost:hover { border-color: var(--aws-orange); color: var(--aws-orange); }
+  .btn { border-bottom: 1px solid transparent; }
+
+  /* --- Stats cards --- */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .stat {
+    background: var(--bg-soft); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px;
+  }
+  .stat .label { color: var(--text-dim); font-size: 12px; text-transform: uppercase;
+                 letter-spacing: .05em; font-weight: 600; margin-bottom: 6px; }
+  .stat .value { font-size: 26px; font-weight: 700; color: var(--aws-navy); line-height: 1.2; }
+  .stat .sub { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
+
+  /* --- Callout --- */
+  .callout {
+    background: #FFF7ED; border: 1px solid #FDBA74; border-left: 4px solid var(--warn);
+    border-radius: var(--radius); padding: 20px 24px;
+  }
+  .callout.critical { background: #FEF2F2; border-color: #FCA5A5; border-left-color: var(--error); }
+  .callout h3 { margin-top: 0; display: flex; align-items: center; gap: 8px; color: #9a3412; }
+  .callout.critical h3 { color: #991b1b; }
+  .callout p { color: #7c2d12; margin-bottom: 0; }
+  .callout.critical p { color: #7f1d1d; }
+
+  /* --- SVG figures --- */
+  .fig {
+    background: var(--bg-soft); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 24px; margin: 16px 0 8px 0;
+    box-shadow: var(--shadow-sm); overflow-x: auto;
+  }
+  .fig svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+  .fig-caption {
+    color: var(--text-dim); font-size: 13px; margin-top: 4px; text-align: center;
+  }
+  .fig-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .fig-row .fig { padding: 16px; }
+
+  /* --- Deploy flow --- */
+  .phases { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px; }
+  .phase {
+    background: var(--bg-soft); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px; position: relative;
+  }
+  .phase .num {
+    display: inline-block; background: var(--aws-navy); color: white;
+    width: 26px; height: 26px; text-align: center; line-height: 26px;
+    border-radius: 50%; font-size: 13px; font-weight: 700; margin-bottom: 8px;
+  }
+  .phase .title { font-weight: 650; font-size: 15px; color: var(--aws-navy); }
+  .phase .desc { color: var(--text-dim); font-size: 13px; margin-top: 6px; }
+  .phase code.inline { font-size: 11px; }
+
+  /* --- Scaling grid --- */
+  .scale-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .scale-card {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px;
+    box-shadow: var(--shadow-sm);
+  }
+  .scale-card .label {
+    display: inline-block; font-size: 11px; font-weight: 700;
+    padding: 3px 8px; border-radius: 4px; letter-spacing: .04em;
+    background: #E0F2FE; color: #075985; margin-bottom: 10px;
+  }
+  .scale-card .label.hot { background: #FEF3C7; color: #92400E; }
+  .scale-card .label.disrupt { background: #FEE2E2; color: #991B1B; }
+  .scale-card .label.future { background: #F3E8FF; color: #6B21A8; }
+  .scale-card h3 { margin-top: 0; }
+  .scale-card p { font-size: 14px; margin: 4px 0; }
+  .scale-card .cmd {
+    background: var(--aws-navy); color: #E8EEF5; padding: 10px 12px;
+    border-radius: 6px; font-family: "SF Mono", Menlo, monospace;
+    font-size: 12px; margin-top: 10px; overflow-x: auto; white-space: pre;
+  }
+
+  /* --- Checklist --- */
+  .checklist { background: var(--bg-soft); border-radius: var(--radius);
+               padding: 20px 24px; border: 1px solid var(--border); }
+  .checklist ul { margin: 8px 0; padding-left: 22px; }
+  .checklist li { margin: 6px 0; }
+  .checklist li code.inline { background: white; }
+
+  /* --- Tables --- */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  th { background: var(--bg-panel); font-weight: 650; color: var(--aws-navy); font-size: 12px;
+       text-transform: uppercase; letter-spacing: .04em; }
+  td code.inline { background: var(--bg-soft); }
+  .tbl-wrap { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+
+  /* --- Footer --- */
+  footer { padding: 40px 0 60px; color: var(--text-dim); font-size: 13px; text-align: center; }
+  footer a { color: var(--aws-navy); }
+
+  /* --- Responsive --- */
+  @media (max-width: 980px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .phases { grid-template-columns: repeat(2, 1fr); }
+    .fig-row { grid-template-columns: 1fr; }
+    .scale-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="wrap">
+    <span class="tag">Self-managed ClickHouse on AWS Graviton4</span>
+    <h1>zeelool-ck-cluster</h1>
+    <p>Terraform + SSM 打造的自管 ClickHouse 集群：1 shard × 2 replica + 3 Keeper，跨 2 AZ，内网 NLB，S3 自动备份，CloudWatch 告警。一条命令部署、一条命令拆除、零 Route53 依赖。</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="https://github.com/keithyt06/zeelool-ck-cluster">GitHub repo →</a>
+      <a class="btn btn-ghost" href="../README.md">README</a>
+      <a class="btn btn-ghost" href="CUSTOMER-ONBOARDING.md">Onboarding</a>
+    </div>
+  </div>
+</header>
+
+<!-- ============ STATS ============ -->
+<section>
+  <div class="wrap">
+    <div class="stats">
+      <div class="stat">
+        <div class="label">Nodes</div>
+        <div class="value">5</div>
+        <div class="sub">2 × ClickHouse r8g.xlarge + 3 × Keeper t4g.small</div>
+      </div>
+      <div class="stat">
+        <div class="label">Data Storage</div>
+        <div class="value">3 TB</div>
+        <div class="sub">gp3 1500 GB × 2 replica，在线可扩</div>
+      </div>
+      <div class="stat">
+        <div class="label">Est. monthly cost</div>
+        <div class="value">~$700</div>
+        <div class="sub">Tokyo on-demand，不含 S3 备份空间</div>
+      </div>
+      <div class="stat">
+        <div class="label">Deploy time</div>
+        <div class="value">~10 min</div>
+        <div class="sub">terraform apply + bootstrap + smoke</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TOPOLOGY ============ -->
+<section>
+  <div class="wrap">
+    <p class="subtitle">架构拓扑</p>
+    <h2>Infrastructure topology</h2>
+    <p>部署在客户已有的 VPC 内。所有节点私网，客户端通过 internal NLB 访问。备份通过 VPC S3 Gateway Endpoint 出私网，不走公网 NAT。</p>
+
+    <div class="fig">
+<svg viewBox="0 0 1080 620" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, system-ui" font-size="13">
+  <!-- VPC border -->
+  <rect x="20" y="20" width="1040" height="580" rx="16" fill="#fff" stroke="#232F3E" stroke-width="2" stroke-dasharray="6 4"/>
+  <text x="40" y="48" fill="#232F3E" font-weight="700" font-size="14">VPC (customer-owned, CIDR auto-discovered)</text>
+
+  <!-- AZ 1 (primary) -->
+  <rect x="50" y="80" width="470" height="390" rx="12" fill="#F7F8FA" stroke="#FF9900" stroke-width="1.5"/>
+  <text x="70" y="104" fill="#232F3E" font-weight="700">AZ az1a — Primary (2 Keepers, read-only if lost)</text>
+
+  <!-- Keeper-01 -->
+  <rect x="70" y="120" width="200" height="72" rx="8" fill="#232F3E"/>
+  <text x="170" y="144" fill="white" text-anchor="middle" font-weight="650">keeper-01 (Raft ID 1)</text>
+  <text x="170" y="164" fill="#FF9900" text-anchor="middle" font-size="11">t4g.small · 2 vCPU · 2 GB</text>
+  <text x="170" y="180" fill="rgba(255,255,255,.75)" text-anchor="middle" font-size="11">9181 client · 9234 raft</text>
+
+  <!-- Keeper-02 -->
+  <rect x="290" y="120" width="200" height="72" rx="8" fill="#232F3E"/>
+  <text x="390" y="144" fill="white" text-anchor="middle" font-weight="650">keeper-02 (Raft ID 2)</text>
+  <text x="390" y="164" fill="#FF9900" text-anchor="middle" font-size="11">t4g.small · 2 vCPU · 2 GB</text>
+  <text x="390" y="180" fill="rgba(255,255,255,.75)" text-anchor="middle" font-size="11">9181 client · 9234 raft</text>
+
+  <!-- ck-01 -->
+  <rect x="70" y="230" width="420" height="130" rx="10" fill="#FF9900"/>
+  <text x="280" y="258" fill="#232F3E" text-anchor="middle" font-weight="700" font-size="16">ck-01 (shard=01, replica=ck-01)</text>
+  <text x="280" y="278" fill="#232F3E" text-anchor="middle" font-size="12">r8g.xlarge · 4 vCPU · 32 GB · Graviton4</text>
+  <rect x="90" y="288" width="180" height="58" rx="6" fill="rgba(255,255,255,.35)"/>
+  <text x="180" y="308" fill="#232F3E" text-anchor="middle" font-size="12" font-weight="600">gp3 root 50 GB</text>
+  <text x="180" y="326" fill="#232F3E" text-anchor="middle" font-size="11">encrypted</text>
+  <rect x="290" y="288" width="180" height="58" rx="6" fill="#fff"/>
+  <text x="380" y="308" fill="#232F3E" text-anchor="middle" font-size="12" font-weight="700">gp3 data 1500 GB</text>
+  <text x="380" y="326" fill="#232F3E" text-anchor="middle" font-size="11">prevent_destroy</text>
+
+  <!-- subnet ports footer -->
+  <text x="70" y="400" fill="#545B64" font-size="11">Subnet key: az1a</text>
+  <text x="70" y="418" fill="#545B64" font-size="11">Ports: 9000 (native TCP) · 8123 (HTTP) · 9009 (interserver)</text>
+  <text x="70" y="436" fill="#545B64" font-size="11">user_data: SSM Agent + mount gp3 data → /var/lib/clickhouse</text>
+  <text x="70" y="454" fill="#545B64" font-size="11">IAM role: zeelool-ck-node-role (SSM + S3 backup)</text>
+
+  <!-- AZ 2 (secondary) -->
+  <rect x="540" y="80" width="490" height="390" rx="12" fill="#F7F8FA" stroke="#FF9900" stroke-width="1.5"/>
+  <text x="560" y="104" fill="#232F3E" font-weight="700">AZ az1c — Secondary (1 Keeper, tolerant of loss)</text>
+
+  <!-- Keeper-03 -->
+  <rect x="560" y="120" width="450" height="72" rx="8" fill="#232F3E"/>
+  <text x="785" y="144" fill="white" text-anchor="middle" font-weight="650">keeper-03 (Raft ID 3)</text>
+  <text x="785" y="164" fill="#FF9900" text-anchor="middle" font-size="11">t4g.small · 2 vCPU · 2 GB</text>
+  <text x="785" y="180" fill="rgba(255,255,255,.75)" text-anchor="middle" font-size="11">9181 client · 9234 raft</text>
+
+  <!-- ck-02 -->
+  <rect x="560" y="230" width="450" height="130" rx="10" fill="#FF9900"/>
+  <text x="785" y="258" fill="#232F3E" text-anchor="middle" font-weight="700" font-size="16">ck-02 (shard=01, replica=ck-02)</text>
+  <text x="785" y="278" fill="#232F3E" text-anchor="middle" font-size="12">r8g.xlarge · 4 vCPU · 32 GB · Graviton4</text>
+  <rect x="580" y="288" width="190" height="58" rx="6" fill="rgba(255,255,255,.35)"/>
+  <text x="675" y="308" fill="#232F3E" text-anchor="middle" font-size="12" font-weight="600">gp3 root 50 GB</text>
+  <text x="675" y="326" fill="#232F3E" text-anchor="middle" font-size="11">encrypted</text>
+  <rect x="800" y="288" width="190" height="58" rx="6" fill="#fff"/>
+  <text x="895" y="308" fill="#232F3E" text-anchor="middle" font-size="12" font-weight="700">gp3 data 1500 GB</text>
+  <text x="895" y="326" fill="#232F3E" text-anchor="middle" font-size="11">prevent_destroy</text>
+
+  <text x="560" y="400" fill="#545B64" font-size="11">Subnet key: az1c</text>
+  <text x="560" y="418" fill="#545B64" font-size="11">Replication over 9009 from ck-01, coordinated via Keeper ensemble</text>
+  <text x="560" y="436" fill="#545B64" font-size="11">Backup executor: ck-01 only (prevents two replicas racing the same S3 .lock)</text>
+
+  <!-- NLB -->
+  <rect x="50" y="490" width="980" height="90" rx="10" fill="#232F3E"/>
+  <text x="540" y="517" fill="white" text-anchor="middle" font-weight="700" font-size="16">Internal NLB — zeelool-ck-nlb</text>
+  <text x="540" y="537" fill="#FF9900" text-anchor="middle" font-size="12">spans both AZs · TG 9000 (native) + TG 8123 (HTTP) · health check /ping · cross-zone balancing</text>
+  <text x="540" y="557" fill="rgba(255,255,255,.78)" text-anchor="middle" font-size="11">AWS-owned DNS: *.elb.&lt;region&gt;.amazonaws.com · no Route53 private zone (client connects to NLB DNS directly)</text>
+
+  <!-- connections -->
+  <line x1="280" y1="360" x2="280" y2="490" stroke="#FF9900" stroke-width="2"/>
+  <line x1="785" y1="360" x2="785" y2="490" stroke="#FF9900" stroke-width="2"/>
+
+  <!-- Replication line CK-01 <-> CK-02 -->
+  <line x1="490" y1="295" x2="560" y2="295" stroke="#232F3E" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="525" y="290" text-anchor="middle" fill="#232F3E" font-size="10" font-weight="600">replication 9009</text>
+</svg>
+      <div class="fig-caption">核心数据面：2 CK replica 跨 AZ，3 Keeper 协调，内网 NLB 单入口。AZ 边框橙线 = 可独立故障域。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FAULT TOLERANCE ============ -->
+<section>
+  <div class="wrap">
+    <p class="subtitle">容错语义（必读）</p>
+    <h2>2-AZ asymmetric fault tolerance</h2>
+
+    <div class="callout critical">
+      <h3>⚠ Primary AZ 挂 = 集群 read-only</h3>
+      <p>默认 <code class="inline">keeper_placement</code> 把 2 个 Keeper 放在字典序小的 AZ（默认 az1a）、1 个放在另一个。失去 az1a 时 Keeper quorum 从 3/3 掉到 1/3，<strong>写入停摆，读可能降级</strong>。失去 az1c 时 quorum 2/3，业务无感。</p>
+    </div>
+
+    <div style="margin-top:16px;" class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>故障场景</th><th>Keeper 剩余</th><th>Quorum</th><th>集群状态</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>az1c (Secondary) 挂</td><td>2 / 3</td><td>✓ 2/3 ≥ ⌈N/2+1⌉ = 2</td><td><strong style="color:var(--success)">写入 OK，读 OK</strong></td></tr>
+          <tr><td>az1a (Primary) 挂</td><td>1 / 3</td><td>✗ 破</td><td><strong style="color:var(--error)">集群 read-only，等 AZ 恢复</strong></td></tr>
+          <tr><td>单个 Keeper 进程挂（非 AZ 级）</td><td>2 / 3</td><td>✓</td><td><strong style="color:var(--success)">业务无感</strong></td></tr>
+          <tr><td>单个 CK replica 挂</td><td>Keepers 不受影响</td><td>✓</td><td><strong style="color:var(--success)">NLB 路由到另一 replica，轻微延迟</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top:16px" class="muted">要"任意 AZ 挂都不停"的对称容错？在 <code class="inline">terraform.tfvars</code> 里把 <code class="inline">private_subnet_ids</code> 补成 3 个 AZ，并把 <code class="inline">keeper_placement</code> 改成 3 AZ 各 1 台。tfvars.example 里有完整示例。</p>
+  </div>
+</section>
+
+<!-- ============ DATA FLOWS ============ -->
+<section>
+  <div class="wrap">
+    <p class="subtitle">数据流</p>
+    <h2>How data moves</h2>
+
+    <div class="fig-row">
+      <!-- WRITE FLOW -->
+      <div class="fig">
+        <h3 style="margin-top:0;color:var(--aws-navy);text-align:center">写入路径</h3>
+        <svg viewBox="0 0 320 300" xmlns="http://www.w3.org/2000/svg" font-size="11" font-family="-apple-system,system-ui">
+          <rect x="90" y="10" width="140" height="34" rx="6" fill="#232F3E"/>
+          <text x="160" y="32" fill="white" text-anchor="middle" font-weight="600">Client (VPC-internal)</text>
+          <line x1="160" y1="46" x2="160" y2="62" stroke="#FF9900" stroke-width="2"/>
+          <polygon points="155,62 165,62 160,70" fill="#FF9900"/>
+
+          <rect x="80" y="74" width="160" height="34" rx="6" fill="#FF9900"/>
+          <text x="160" y="96" fill="#232F3E" text-anchor="middle" font-weight="700">NLB :9000 / :8123</text>
+          <line x1="160" y1="110" x2="160" y2="130" stroke="#FF9900" stroke-width="2"/>
+          <polygon points="155,130 165,130 160,138" fill="#FF9900"/>
+
+          <rect x="80" y="142" width="160" height="34" rx="6" fill="#FF9900"/>
+          <text x="160" y="164" fill="#232F3E" text-anchor="middle" font-weight="700">ck-01 receives INSERT</text>
+
+          <line x1="160" y1="178" x2="90" y2="210" stroke="#232F3E" stroke-width="1.5" stroke-dasharray="3 2"/>
+          <line x1="160" y1="178" x2="230" y2="210" stroke="#232F3E" stroke-width="1.5" stroke-dasharray="3 2"/>
+
+          <rect x="10" y="216" width="160" height="34" rx="6" fill="#232F3E"/>
+          <text x="90" y="238" fill="white" text-anchor="middle" font-size="10">1. Keeper 记 part log</text>
+          <rect x="180" y="216" width="130" height="34" rx="6" fill="#232F3E"/>
+          <text x="245" y="238" fill="white" text-anchor="middle" font-size="10">2. ck-02 pull part</text>
+
+          <line x1="245" y1="250" x2="245" y2="265" stroke="#FF9900" stroke-width="2"/>
+          <polygon points="240,265 250,265 245,273" fill="#FF9900"/>
+          <text x="245" y="292" text-anchor="middle" fill="#545B64" font-size="10">via 9009 interserver</text>
+        </svg>
+        <div class="fig-caption">ReplicatedMergeTree：写入任一 replica → Keeper 协调 → 另一 replica 异步拉取</div>
+      </div>
+
+      <!-- BACKUP FLOW -->
+      <div class="fig">
+        <h3 style="margin-top:0;color:var(--aws-navy);text-align:center">备份路径</h3>
+        <svg viewBox="0 0 320 300" xmlns="http://www.w3.org/2000/svg" font-size="11" font-family="-apple-system,system-ui">
+          <rect x="70" y="10" width="180" height="34" rx="6" fill="#232F3E"/>
+          <text x="160" y="32" fill="white" text-anchor="middle" font-weight="600">EventBridge cron</text>
+          <text x="160" y="58" fill="#545B64" text-anchor="middle" font-size="10">full: Sun 17:00 UTC · incr: MON-SAT</text>
+
+          <line x1="160" y1="62" x2="160" y2="80" stroke="#FF9900" stroke-width="2"/>
+          <polygon points="155,80 165,80 160,88" fill="#FF9900"/>
+
+          <rect x="40" y="92" width="240" height="34" rx="6" fill="#FF9900"/>
+          <text x="160" y="114" fill="#232F3E" text-anchor="middle" font-weight="700">SSM SendCommand (run-backup)</text>
+
+          <line x1="160" y1="128" x2="160" y2="146" stroke="#FF9900" stroke-width="2"/>
+          <polygon points="155,146 165,146 160,154" fill="#FF9900"/>
+
+          <rect x="70" y="158" width="180" height="46" rx="6" fill="#FF9900"/>
+          <text x="160" y="178" fill="#232F3E" text-anchor="middle" font-weight="700">ck-01 executes</text>
+          <text x="160" y="194" fill="#232F3E" text-anchor="middle" font-size="10">BACKUP ALL EXCEPT system</text>
+
+          <line x1="160" y1="206" x2="160" y2="224" stroke="#FF9900" stroke-width="2"/>
+          <polygon points="155,224 165,224 160,232" fill="#FF9900"/>
+
+          <rect x="60" y="238" width="200" height="34" rx="6" fill="#232F3E"/>
+          <text x="160" y="260" fill="white" text-anchor="middle" font-weight="600">S3 via Gateway Endpoint</text>
+          <text x="160" y="290" text-anchor="middle" fill="#545B64" font-size="10">incr 14 天 · full 28 天 · abort MPU 7 天</text>
+        </svg>
+        <div class="fig-caption">EventBridge 定时 → 仅 ck-01 执行 → 走 VPC S3 GW endpoint（不经公网）</div>
+      </div>
+
+      <!-- ALARM FLOW -->
+      <div class="fig">
+        <h3 style="margin-top:0;color:var(--aws-navy);text-align:center">告警路径</h3>
+        <svg viewBox="0 0 320 300" xmlns="http://www.w3.org/2000/svg" font-size="11" font-family="-apple-system,system-ui">
+          <rect x="20" y="14" width="128" height="60" rx="6" fill="#232F3E"/>
+          <text x="84" y="36" fill="white" text-anchor="middle" font-size="10">EB FailedInvocations</text>
+          <text x="84" y="52" fill="rgba(255,255,255,.7)" text-anchor="middle" font-size="9">full rule</text>
+          <text x="84" y="66" fill="rgba(255,255,255,.7)" text-anchor="middle" font-size="9">incr rule</text>
+
+          <rect x="172" y="14" width="128" height="60" rx="6" fill="#232F3E"/>
+          <text x="236" y="36" fill="white" text-anchor="middle" font-size="10">SSM CommandsFailed</text>
+          <text x="236" y="52" fill="rgba(255,255,255,.7)" text-anchor="middle" font-size="9">DocumentName=</text>
+          <text x="236" y="66" fill="rgba(255,255,255,.7)" text-anchor="middle" font-size="9">run-backup</text>
+
+          <line x1="84" y1="76" x2="160" y2="110" stroke="#FF9900" stroke-width="2"/>
+          <line x1="236" y1="76" x2="160" y2="110" stroke="#FF9900" stroke-width="2"/>
+
+          <rect x="90" y="112" width="140" height="34" rx="6" fill="#FF9900"/>
+          <text x="160" y="134" fill="#232F3E" text-anchor="middle" font-weight="700">CloudWatch Alarm</text>
+
+          <line x1="160" y1="146" x2="160" y2="162" stroke="#FF9900" stroke-width="2"/>
+          <polygon points="155,162 165,162 160,170" fill="#FF9900"/>
+
+          <rect x="50" y="172" width="220" height="40" rx="6" fill="#fff" stroke="#FDBA74" stroke-width="2" stroke-dasharray="4 3"/>
+          <text x="160" y="190" fill="#9a3412" text-anchor="middle" font-weight="600" font-size="11">SNS topic (optional)</text>
+          <text x="160" y="204" fill="#9a3412" text-anchor="middle" font-size="10">backup_alarm_sns_topic_arn</text>
+
+          <line x1="160" y1="212" x2="160" y2="232" stroke="#9a3412" stroke-width="1.5" stroke-dasharray="3 2"/>
+
+          <rect x="40" y="238" width="240" height="36" rx="6" fill="#232F3E"/>
+          <text x="160" y="260" fill="white" text-anchor="middle" font-weight="600" font-size="11">PagerDuty / email / Slack</text>
+
+          <text x="160" y="292" text-anchor="middle" fill="#545B64" font-size="10">SNS topic 未配则 alarm 静默，仅 CW 可见</text>
+        </svg>
+        <div class="fig-caption">3 个 CW Alarm 覆盖 EB→SSM 失败 + SSM 执行失败两类问题</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DEPLOYMENT FLOW ============ -->
+<section>
+  <div class="wrap">
+    <p class="subtitle">部署流</p>
+    <h2>From zero to cluster in 4 phases</h2>
+    <p>全程 <code class="inline">export AWS_PROFILE=default</code>（或你的 profile）。无需手工创 state bucket —— bootstrap 模块自动做。</p>
+
+    <div class="phases">
+      <div class="phase">
+        <span class="num">0</span>
+        <div class="title">前置（手工）</div>
+        <div class="desc">VPC + 最少 2 private subnets（跨 2 AZ），每个子网能访问 SSM（NAT 或 SSM endpoint）。</div>
+      </div>
+      <div class="phase">
+        <span class="num">1</span>
+        <div class="title">Bootstrap state backend</div>
+        <div class="desc"><code class="inline">terraform/bootstrap</code> apply 创 S3 state bucket + DynamoDB lock 表，自动生成 backend.hcl。</div>
+      </div>
+      <div class="phase">
+        <span class="num">2</span>
+        <div class="title">主栈 terraform apply</div>
+        <div class="desc"><code class="inline">envs/prod</code> 装载 backend.hcl，apply 创 50+ AWS 资源（EC2 / EBS / NLB / SG / IAM / S3 / SSM Doc / EventBridge / CW Alarm）。</div>
+      </div>
+      <div class="phase">
+        <span class="num">3</span>
+        <div class="title">Post-apply bootstrap</div>
+        <div class="desc"><code class="inline">bootstrap-post-apply.sh</code> 7 步幂等：装 Keeper/CK binary、渲染 config、生成密码存 SSM、smoke。</div>
+      </div>
+    </div>
+
+    <div class="fig" style="margin-top:28px">
+<svg viewBox="0 0 1080 240" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,system-ui" font-size="12">
+  <!-- phase boxes in row -->
+  <g>
+    <rect x="20" y="40" width="240" height="160" rx="10" fill="#F2F3F5" stroke="#232F3E" stroke-width="1"/>
+    <text x="140" y="70" fill="#232F3E" text-anchor="middle" font-weight="700">Phase 0: Manual</text>
+    <text x="140" y="100" fill="#545B64" text-anchor="middle" font-size="11">AWS Console / CLI</text>
+    <text x="140" y="120" fill="#16191F" text-anchor="middle" font-size="11">VPC</text>
+    <text x="140" y="138" fill="#16191F" text-anchor="middle" font-size="11">2+ private subnets</text>
+    <text x="140" y="156" fill="#16191F" text-anchor="middle" font-size="11">NAT or SSM endpoint</text>
+    <text x="140" y="186" fill="#545B64" text-anchor="middle" font-size="10">one-time, ~5 min</text>
+  </g>
+  <line x1="260" y1="120" x2="290" y2="120" stroke="#FF9900" stroke-width="2"/>
+  <polygon points="290,115 290,125 300,120" fill="#FF9900"/>
+
+  <g>
+    <rect x="300" y="40" width="240" height="160" rx="10" fill="#FFF7ED" stroke="#FF9900" stroke-width="1.5"/>
+    <text x="420" y="70" fill="#232F3E" text-anchor="middle" font-weight="700">Phase 1: Bootstrap</text>
+    <text x="420" y="100" fill="#545B64" text-anchor="middle" font-size="11">terraform/bootstrap</text>
+    <text x="420" y="120" fill="#16191F" text-anchor="middle" font-size="11">S3 tfstate bucket</text>
+    <text x="420" y="138" fill="#16191F" text-anchor="middle" font-size="11">DynamoDB lock table</text>
+    <text x="420" y="156" fill="#16191F" text-anchor="middle" font-size="11">backend.hcl output</text>
+    <text x="420" y="186" fill="#545B64" text-anchor="middle" font-size="10">~60 sec · local state</text>
+  </g>
+  <line x1="540" y1="120" x2="570" y2="120" stroke="#FF9900" stroke-width="2"/>
+  <polygon points="570,115 570,125 580,120" fill="#FF9900"/>
+
+  <g>
+    <rect x="580" y="40" width="240" height="160" rx="10" fill="#FFF7ED" stroke="#FF9900" stroke-width="1.5"/>
+    <text x="700" y="70" fill="#232F3E" text-anchor="middle" font-weight="700">Phase 2: Main infra</text>
+    <text x="700" y="100" fill="#545B64" text-anchor="middle" font-size="11">terraform/envs/prod</text>
+    <text x="700" y="120" fill="#16191F" text-anchor="middle" font-size="11">EC2 × 5 + EBS × 7</text>
+    <text x="700" y="138" fill="#16191F" text-anchor="middle" font-size="11">NLB + SG × 3 + IAM</text>
+    <text x="700" y="156" fill="#16191F" text-anchor="middle" font-size="11">S3 + EB + 3 × CW Alarm</text>
+    <text x="700" y="186" fill="#545B64" text-anchor="middle" font-size="10">~5 min · 50+ resources</text>
+  </g>
+  <line x1="820" y1="120" x2="850" y2="120" stroke="#FF9900" stroke-width="2"/>
+  <polygon points="850,115 850,125 860,120" fill="#FF9900"/>
+
+  <g>
+    <rect x="860" y="40" width="200" height="160" rx="10" fill="#FFF7ED" stroke="#FF9900" stroke-width="1.5"/>
+    <text x="960" y="70" fill="#232F3E" text-anchor="middle" font-weight="700">Phase 3: CK bootstrap</text>
+    <text x="960" y="100" fill="#545B64" text-anchor="middle" font-size="11">bootstrap-post-apply.sh</text>
+    <text x="960" y="120" fill="#16191F" text-anchor="middle" font-size="11">Install Keeper × 3</text>
+    <text x="960" y="138" fill="#16191F" text-anchor="middle" font-size="11">Install CK × 2</text>
+    <text x="960" y="156" fill="#16191F" text-anchor="middle" font-size="11">Render + push configs</text>
+    <text x="960" y="186" fill="#545B64" text-anchor="middle" font-size="10">~3 min · idempotent</text>
+  </g>
+</svg>
+      <div class="fig-caption">手工只做 Phase 0（VPC/子网）；Phase 1-3 全自动，全程 ~10 分钟。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ WHAT CUSTOMER MODIFIES ============ -->
+<section>
+  <div class="wrap">
+    <p class="subtitle">客户需要改什么</p>
+    <h2>Files to edit (2 files, ~6 required fields)</h2>
+
+    <h3>1. <code class="inline">terraform/bootstrap/terraform.tfvars</code> — 零必填</h3>
+    <div class="checklist">
+      <ul>
+        <li><code class="inline">region</code> — 默认 <code class="inline">"ap-northeast-1"</code>，改成你的 region</li>
+        <li><code class="inline">profile</code> — 默认空（走 AWS SDK 默认链），可 pin 成 <code class="inline">"default"</code></li>
+        <li>其余字段（name_prefix / state_bucket_name / lock_table_name）全部有默认</li>
+      </ul>
+    </div>
+
+    <h3 style="margin-top:24px">2. <code class="inline">terraform/envs/prod/terraform.tfvars</code> — 4 项必填</h3>
+    <div class="checklist">
+      <ul>
+        <li><strong>必填：</strong><code class="inline">vpc_id</code> — Phase 0 创的 VPC</li>
+        <li><strong>必填：</strong><code class="inline">private_subnet_ids</code> — map，至少 2 个子网 ID</li>
+        <li><strong>强烈建议：</strong><code class="inline">name_prefix</code> — 客户代号避免 IAM / S3 全局冲突</li>
+        <li><strong>强烈建议：</strong><code class="inline">cluster_name</code> — 不能含 <code class="inline">-</code>（CK 限制）</li>
+        <li>可选：<code class="inline">clickhouse_instance_type</code>、<code class="inline">clickhouse_data_volume_gb</code>、<code class="inline">ssh_key_name</code>、<code class="inline">backup_alarm_sns_topic_arn</code>、<code class="inline">profile</code></li>
+      </ul>
+    </div>
+
+    <p style="margin-top:16px" class="muted">两个 tfvars 都 gitignored —— 客户 copy 对应的 <code class="inline">.example</code> 再改。全部字段注释完整，每个变量在 <code class="inline">variables.tf</code> 里有 description。</p>
+  </div>
+</section>
+
+<!-- ============ INSTANCE TYPES ============ -->
+<section>
+  <div class="wrap">
+    <p class="subtitle">机型（Graviton）</p>
+    <h2>Instance types</h2>
+    <p>默认值在 <code class="inline">terraform/envs/prod/variables.tf</code>。<code class="inline">terraform.tfvars.example</code> 里以注释形式列出常见档位，客户要改就取消注释。</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>角色</th><th>默认</th><th>选项（vCPU / RAM）</th><th>Tokyo 月价</th><th>适合</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Keeper</strong></td>
+            <td><code class="inline">t4g.small</code></td>
+            <td>t4g.small (2/2 GB)</td>
+            <td>~$12</td>
+            <td>默认够 50 张 replicated table</td>
+          </tr>
+          <tr>
+            <td rowspan="3"><strong>ClickHouse</strong></td>
+            <td><code class="inline">r8g.xlarge</code></td>
+            <td>r8g.large (2/16 GB)</td>
+            <td>~$95</td>
+            <td>MVP / &lt;100M rows/day</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td><strong>r8g.xlarge</strong> (4/32 GB) ⭐</td>
+            <td>~$208</td>
+            <td>默认，100–500M rows/day</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td>r8g.2xlarge (8/64 GB)</td>
+            <td>~$416</td>
+            <td>重 BI / &gt;500M rows/day</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top:16px" class="muted">为什么是 r8g 不是 m8g：CK 推荐 8 GB/vCPU（warehousing），m8g 只有 4 GB/vCPU 偏瘦。r8g.large 已经踩 CK "≥ 8 GB RAM" 下限，再低启动会失败。</p>
+  </div>
+</section>
+
+<!-- ============ SCALING ============ -->
+<section>
+  <div class="wrap">
+    <p class="subtitle">扩容</p>
+    <h2>Scaling paths</h2>
+    <div class="scale-grid">
+      <div class="scale-card">
+        <span class="label">在线 · 无停机</span>
+        <h3>A. 存储扩容</h3>
+        <p>改 <code class="inline">clickhouse_data_volume_gb</code> → apply → 用 SSM Doc <code class="inline">resize-data-volume</code> 扩文件系统。</p>
+        <p class="muted">⚠ size / iops / throughput 各有 AWS 6h 冷却 —— 要一起改就同一次 apply 提交。</p>
+        <div class="cmd">$ terraform apply
+$ aws ssm send-command --document-name \
+    $NAME_PREFIX-resize-data-volume --instance-ids &lt;ck-id&gt;</div>
+      </div>
+
+      <div class="scale-card">
+        <span class="label">在线 · 无停机</span>
+        <h3>B. 加 replica</h3>
+        <p>在 <code class="inline">clickhouse_placement</code> 里加一个 entry，apply 创 EC2 + EBS，<code class="inline">bootstrap-post-apply.sh</code> 装软件、渲染配置、挂进集群，Keeper 自动同步。</p>
+        <div class="cmd">clickhouse_placement = {
+  "ck-01" = { subnet_key = "az1a" }
+  "ck-02" = { subnet_key = "az1c" }
+  "ck-03" = { subnet_key = "az1a" }   # NEW
+}</div>
+      </div>
+
+      <div class="scale-card">
+        <span class="label hot">Force-new · 需滚动</span>
+        <h3>C. 升机型（vertical）</h3>
+        <p>改 <code class="inline">clickhouse_instance_type</code>。<strong>会停机换 instance</strong>，数据盘靠 <code class="inline">prevent_destroy</code> 不丢。建议分两次 <code class="inline">-target</code> 滚动，NLB 撑住流量。</p>
+        <div class="cmd">$ terraform apply \
+    -target='module.clickhouse["ck-01"]'
+# 确认 ck-02 扛住后再:
+$ terraform apply \
+    -target='module.clickhouse["ck-02"]'</div>
+      </div>
+
+      <div class="scale-card">
+        <span class="label future">未自动化</span>
+        <h3>D. 加 shard（horizontal）</h3>
+        <p>当前 1 shard × 2 replica。加 shard 需扩 <code class="inline">remote_servers.xml</code>、新 shard 加入 Keeper、旧表 <code class="inline">ALTER MOVE PARTITION</code> rebalance。模板 TODO，等有客户 &gt;500M rows/day 规模再做。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CI / GUARDS ============ -->
+<section>
+  <div class="wrap">
+    <p class="subtitle">质量保障</p>
+    <h2>CI + Safety rails</h2>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="label">GitHub Actions</div>
+        <div class="value">3 jobs</div>
+        <div class="sub">terraform fmt+validate · shellcheck · ssm-docs yaml</div>
+      </div>
+      <div class="stat">
+        <div class="label">Prevent destroy</div>
+        <div class="value">3 resources</div>
+        <div class="sub">CK data EBS · tfstate bucket · lock table</div>
+      </div>
+      <div class="stat">
+        <div class="label">CW Alarms</div>
+        <div class="value">3 alarms</div>
+        <div class="sub">EB full · EB incr · SSM CommandsFailed</div>
+      </div>
+      <div class="stat">
+        <div class="label">Smoke checks</div>
+        <div class="value">7 tests</div>
+        <div class="sub">SSM online · quorum · NLB health · backup · EB</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <p>
+      <a href="https://github.com/keithyt06/zeelool-ck-cluster">GitHub</a> ·
+      <a href="../README.md">README</a> ·
+      <a href="CUSTOMER-ONBOARDING.md">Onboarding runbook</a>
+    </p>
+    <p style="margin-top:8px">Last updated from commit on main branch · Self-managed ClickHouse on AWS · MIT licensed</p>
+  </div>
+</footer>
+
+</body>
+</html>

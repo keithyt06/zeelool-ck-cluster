@@ -8,6 +8,7 @@ Terraform + SSM 打造的自管 ClickHouse 集群：**1 shard × 2 replica CK + 
 
 | 看这份 | 做什么 |
 |---|---|
+| [docs/architecture.html](docs/architecture.html) | **单页架构图**（浏览器打开）：拓扑 + 数据流 + 部署流 + 扩容路径 + 故障容忍语义 |
 | [docs/CUSTOMER-ONBOARDING.md](docs/CUSTOMER-ONBOARDING.md) | **客户部署必读**。从空账户到生产集群的 6 步 runbook |
 | [docs/superpowers/specs/2026-05-04-zeelool-clickhouse-design.md](docs/superpowers/specs/2026-05-04-zeelool-clickhouse-design.md) | 架构设计：拓扑、HA 策略、容量估算、成本建模 |
 | [docs/superpowers/plans/2026-05-05-zeelool-clickhouse-mvp.md](docs/superpowers/plans/2026-05-05-zeelool-clickhouse-mvp.md) | 详细实施计划 + 运维红线（顶部）+ **附录 C EBS 扩容 runbook** |
