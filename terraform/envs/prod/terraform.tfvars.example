@@ -1,8 +1,18 @@
 # ============================================================================
-# Customer-facing config — copy to terraform.tfvars and edit.
+# Customer-facing config TEMPLATE.
 #
-# Anything commented out uses a default that matches Keith's validation
-# deployment. Uncomment and change to retarget the stack.
+# THIS FILE IS THE TEMPLATE — do NOT edit in place. Workflow:
+#
+#   cd terraform/envs/prod
+#   cp terraform.tfvars.example terraform.tfvars
+#   $EDITOR terraform.tfvars          # fill in real vpc_id / subnets / names
+#   AWS_PROFILE=default terraform apply
+#
+# `terraform.tfvars` is git-ignored. Your real VPC / subnet / bucket values
+# live only on disk + in Terraform state — never in this committed template.
+#
+# Anything commented out below uses a sensible default from variables.tf.
+# Uncomment + change only the values you need to override.
 # ============================================================================
 
 # ---------- REQUIRED ----------

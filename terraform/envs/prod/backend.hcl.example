@@ -1,0 +1,19 @@
+# ============================================================================
+# Partial backend configuration — copy to backend.hcl and fill in.
+#
+# Workflow:
+#   cp backend.hcl.example backend.hcl
+#   # Easiest: paste in the exact output from terraform/bootstrap's `backend_hcl`.
+#   #   terraform -chdir=../bootstrap output -raw backend_hcl > backend.hcl
+#   # Or edit manually:
+#   $EDITOR backend.hcl
+#   AWS_PROFILE=default terraform init -backend-config=backend.hcl
+#
+# `backend.hcl` is gitignored.
+# ============================================================================
+
+bucket         = "zeelool-ck-tfstate-ap-northeast-1"
+key            = "envs/prod/terraform.tfstate"
+region         = "ap-northeast-1"
+dynamodb_table = "zeelool-ck-tflock"
+encrypt        = true

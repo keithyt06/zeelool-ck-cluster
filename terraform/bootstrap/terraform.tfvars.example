@@ -1,0 +1,35 @@
+# ============================================================================
+# Bootstrap config TEMPLATE.
+#
+# Workflow:
+#   cd terraform/bootstrap
+#   cp terraform.tfvars.example terraform.tfvars
+#   $EDITOR terraform.tfvars          # tweak names / region if needed
+#   AWS_PROFILE=default terraform init
+#   AWS_PROFILE=default terraform apply
+#   terraform output -raw backend_hcl > ../envs/prod/backend.hcl
+#
+# Defaults (everything commented out) produce:
+#   - S3 bucket  : zeelool-ck-tfstate-ap-northeast-1
+#   - DDB table  : zeelool-ck-tflock
+# Uncomment only what you need to override.
+# ============================================================================
+
+# Region where state backend lives. Keep this the same as the main deploy —
+# otherwise envs/prod needs a cross-region backend which costs more in latency.
+# region = "ap-southeast-1"
+
+# AWS profile. Empty = SDK default chain (AWS_PROFILE env or ~/.aws/credentials [default]).
+# profile = "default"
+
+# Tag / default-bucket prefix. Align with envs/prod `name_prefix`.
+# name_prefix = "acme-ck"
+
+# Override the S3 bucket name if your org has a convention or the default
+# collides. S3 bucket names are GLOBAL (across all AWS accounts).
+# state_bucket_name = "acme-ck-tfstate-prod"
+
+# Override the DynamoDB lock table name (account-local, rarely collides).
+# lock_table_name = "acme-ck-tflock"
+
+# owner = "data-platform"

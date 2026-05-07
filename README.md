@@ -14,21 +14,30 @@ Terraform + SSM 打造的自管 ClickHouse 集群：**1 shard × 2 replica CK + 
 
 ## 从零部署（完整流程见 CUSTOMER-ONBOARDING.md）
 
-**前置（一次性）**：在目标 region 建好 VPC + **最少 2 个私有子网**（默认 2-AZ 布局；要 3-AZ 对称容错就建 3 个）+ Terraform state bucket + DynamoDB 锁表，改 `provider.tf` backend 块。
+**前置（一次性手工）**：在目标 region 建好 VPC + **最少 2 个私有子网**（默认 2-AZ 布局；要 3-AZ 对称容错就建 3 个）。**不再需要手工建 state bucket / 锁表** —— 下一步 `terraform/bootstrap/` 自动创。
 
 ```bash
-# 1. 填 tfvars（必填 vpc_id / private_subnet_ids / name_prefix 等）
-cd terraform/envs/prod
-cp terraform.tfvars.example terraform.tfvars
-$EDITOR terraform.tfvars
+export AWS_PROFILE=default
 
-# 2. 部署基础设施（~5 分钟）
+# 1. Bootstrap state backend（S3 + DynamoDB，首次唯一一次）
+cd terraform/bootstrap
+cp terraform.tfvars.example terraform.tfvars    # 默认值 OK，不改也行
 terraform init
+terraform apply
+terraform output -raw backend_hcl > ../envs/prod/backend.hcl   # 喂给主栈
+
+# 2. 主栈 tfvars
+cd ../envs/prod
+cp terraform.tfvars.example terraform.tfvars
+$EDITOR terraform.tfvars                                      # 填 vpc_id / private_subnet_ids
+
+# 3. 部署基础设施（~5 分钟）
+terraform init -backend-config=backend.hcl
 terraform plan -out=p.plan
 terraform apply p.plan
 
-# 3. 一条命令装完 Keeper + CK 二进制、渲染配置、生成密码、跑 smoke
-cd ..
+# 4. 一条命令装完 Keeper + CK 二进制、渲染配置、生成密码、跑 smoke
+cd ../..
 ./scripts/bootstrap-post-apply.sh
 ```
 
@@ -38,12 +47,21 @@ cd ..
 
 ```
 terraform/
-├── backend.tf                # provider / terraform block（state 在 envs/prod/provider.tf）
+├── backend.tf                # 顶层 terraform block（provider version pin，legacy）
+├── bootstrap/                # 一次性创 state S3 bucket + DynamoDB lock 表（local state）
+│   ├── main.tf               # S3 + DDB 资源
+│   ├── variables.tf          # 可覆盖 bucket/table 名
+│   ├── outputs.tf            # backend_hcl output 直接喂给 envs/prod
+│   ├── provider.tf           # 无 backend 块（local state）
+│   ├── terraform.tfvars      # gitignored
+│   └── terraform.tfvars.example
 ├── envs/prod/
 │   ├── main.tf               # 顶层 composition（数据源发现 + 模块编排）
 │   ├── variables.tf          # 客户可覆盖变量，每个都有说明
 │   ├── outputs.tf            # cluster_info 聚合输出，脚本由此拿拓扑
-│   ├── provider.tf           # AWS provider + S3 state backend
+│   ├── provider.tf           # AWS provider + partial S3 backend（看 backend.hcl）
+│   ├── backend.hcl           # 实际 backend 参数（git ignored）
+│   ├── backend.hcl.example   # 模板
 │   ├── terraform.tfvars      # 实际部署的值（git ignored）
 │   └── terraform.tfvars.example  # 给客户的模板
 └── modules/
@@ -113,8 +131,15 @@ scripts/
 # 环境变量先于 terraform/scripts 生效 —— 不 export 的话，shell 里其他 profile 会抢
 export AWS_PROFILE=default
 
-cd terraform/envs/prod
-terraform init -upgrade       # 首次或 provider 变化后
+# 首次唯一：创 state backend（S3 bucket + DynamoDB lock 表）
+cd terraform/bootstrap
+terraform init
+terraform apply -auto-approve
+terraform output -raw backend_hcl > ../envs/prod/backend.hcl
+
+# 主栈
+cd ../envs/prod
+terraform init -backend-config=backend.hcl    # 首次需要 -backend-config，之后 plain terraform
 terraform plan -out=p.plan
 terraform apply p.plan
 

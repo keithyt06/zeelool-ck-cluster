@@ -11,16 +11,20 @@ terraform {
     }
   }
 
-  # Backend credentials resolve from the ambient AWS config chain (AWS_PROFILE
-  # env var, instance profile, SSO) so the same state is usable from CI, laptops,
-  # and other operators without a hard-coded profile name.
-  backend "s3" {
-    bucket         = "zeelool-ck-tfstate-apne1"
-    key            = "envs/prod/terraform.tfstate"
-    region         = "ap-northeast-1"
-    dynamodb_table = "zeelool-ck-tflock"
-    encrypt        = true
-  }
+  # Partial backend configuration — values supplied at init time via
+  # `-backend-config=backend.hcl`. Template: backend.hcl.example.
+  # Real values: backend.hcl (gitignored).
+  #
+  # The state bucket + lock table are created ONCE by `terraform/bootstrap/`
+  # — see its README. After that:
+  #
+  #   AWS_PROFILE=default terraform init -backend-config=backend.hcl
+  #
+  # Subsequent `terraform plan/apply` runs reuse cached config from `.terraform/`.
+  #
+  # Credentials resolve from the ambient AWS config chain (AWS_PROFILE env,
+  # instance profile, SSO) — backend has no hardcoded profile.
+  backend "s3" {}
 }
 
 provider "aws" {

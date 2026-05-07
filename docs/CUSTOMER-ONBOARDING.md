@@ -46,44 +46,27 @@ aws --region <region> ec2 describe-subnets \
 
 ### 0.2 Terraform state backend（S3 + DynamoDB）
 
-Terraform 状态文件要存远端。**只需建一次，后续所有部署复用**。
+Terraform 状态文件要存远端（S3 bucket + DynamoDB lock 表）。**只需建一次，后续所有部署复用。** v2 把这一步也纳入 terraform 管理 —— 跑 `terraform/bootstrap/` 模块自动创，不用手搓 AWS CLI。
 
 ```bash
-# 填你的值
-export R=<region>                      # e.g. ap-southeast-1
-export B=<customer>-ck-tfstate         # 全局唯一的 bucket 名
-export D=<customer>-ck-tflock          # DynamoDB 锁表名
+export AWS_PROFILE=default                  # 或你自己的 profile
+cd terraform/bootstrap
 
-aws --region $R s3api create-bucket --bucket $B \
-  --create-bucket-configuration LocationConstraint=$R
-aws --region $R s3api put-bucket-versioning --bucket $B \
-  --versioning-configuration Status=Enabled
-aws --region $R s3api put-bucket-encryption --bucket $B \
-  --server-side-encryption-configuration \
-  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
-aws --region $R s3api put-public-access-block --bucket $B \
-  --public-access-block-configuration \
-  'BlockPublicAcls=true,BlockPublicPolicy=true,IgnorePublicAcls=true,RestrictPublicBuckets=true'
+# 默认值（bucket=<prefix>-tfstate-<region>、table=<prefix>-tflock）一般够用。
+# 要改 region / profile / name_prefix 就 cp example 到 tfvars 填：
+cp terraform.tfvars.example terraform.tfvars
+$EDITOR terraform.tfvars
 
-aws --region $R dynamodb create-table --table-name $D \
-  --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST
+terraform init
+terraform apply                             # 创 S3 bucket + versioning + SSE + PAB + DDB 表
+
+# 把 backend 参数写到 envs/prod/backend.hcl（主栈 init 时读这个）
+terraform output -raw backend_hcl > ../envs/prod/backend.hcl
 ```
 
-然后**改一次** `terraform/envs/prod/provider.tf` 的 backend 块：
+就这一步。**envs/prod/provider.tf 的 backend 块现在是空的**（partial backend），所有参数通过 `-backend-config=backend.hcl` 注入 —— 客户零改模块代码。
 
-```hcl
-backend "s3" {
-  bucket         = "<customer>-ck-tfstate"   # ← 改
-  key            = "envs/prod/terraform.tfstate"
-  region         = "<region>"                # ← 改
-  dynamodb_table = "<customer>-ck-tflock"    # ← 改
-  encrypt        = true
-}
-```
-
-> **为什么这一处不能变量化：** Terraform 不允许 backend 配置引用 `var.*`，AWS-wide 限制。
+> **为什么需要本地 state 的 bootstrap 层**：state backend 是一个 bootstrap 问题 —— 你不能把"创建 state bucket"本身的 state 存在那个 bucket 里。bootstrap 模块用 local state（`terraform.tfstate` 在 `terraform/bootstrap/` 下），内容只是 bucket/表 ID，不敏感，提不提交都行。
 
 ### 0.3 （可选）EC2 KeyPair
 
@@ -163,10 +146,12 @@ ssh_key_name = "acme-ck-keypair"
 
 ```bash
 cd terraform/envs/prod
-terraform init                # 连接 Step 0.2 的 state backend
+terraform init -backend-config=backend.hcl   # 首次需要 -backend-config，会缓存进 .terraform/
 terraform plan -out=p.plan
 terraform apply p.plan
 ```
+
+> 首次以外的日常调用（`plan`/`apply`）不用再带 `-backend-config`，`.terraform/` 已缓存。除非 backend 配置变了，重跑 `terraform init -reconfigure -backend-config=backend.hcl`。
 
 **预期 plan**：~50 个新资源，~5 分钟完成。
 

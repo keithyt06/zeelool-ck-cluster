@@ -6,6 +6,9 @@
 # in terraform.tfvars (gitignored). The *.example file is the committed template.
 terraform.tfvars
 *.tfvars.local
+# Backend config (envs/prod/backend.hcl) — holds the customer's state bucket
+# name. Committed template is backend.hcl.example.
+backend.hcl
 .terraform.lock.hcl
 tfplan
 p.plan
