@@ -14,7 +14,7 @@
 - `jq`
 - `openssl`, `ssh-keygen`（一般系统自带）
 
-**AWS 凭据**：`aws sts get-caller-identity` 能跑通。需要至少 EC2 / IAM / SSM / S3 / Route53 / EventBridge / ELBv2 / DynamoDB 的读写权限。
+**AWS 凭据**：`aws sts get-caller-identity` 能跑通。需要至少 EC2 / IAM / SSM / S3 / EventBridge / ELBv2 / DynamoDB 的读写权限。（**不需要 Route53 权限** —— v2 拓扑已去掉 private hosted zone，客户端直连 NLB DNS。）
 
 ---
 
@@ -22,12 +22,13 @@
 
 只这一步有手工，之后全自动。
 
-### 0.1 VPC + 3 个私有子网
+### 0.1 VPC + 私有子网
 
 目标 Region 里要已有：
 
 - [ ] 一个 VPC（**任意 CIDR**：10.0/8 / 172.16/12 / 192.168/16 都行）
-- [ ] **至少 3 个私有子网，分布在 3 个 AZ**（Keeper 的 Raft 要 3 副本分开挂 AZ）
+- [ ] **最少 2 个私有子网**（默认 2-AZ 布局 —— 2+1 Keeper 分布在 az1a/az1c）
+  - 想要"任意 AZ 可挂"对称容错？准备 **3 个不同 AZ 的子网**，并在 tfvars 里把 `keeper_placement` 改成 3 AZ 各 1 台
 - [ ] 每个子网要能访问 SSM（二选一）：
   - **A.** 子网有 NAT Gateway 出网
   - **B.** VPC 里有 SSM interface endpoints（`com.amazonaws.<region>.ssm` / `ssmmessages` / `ec2messages`）—— 更安全，也省 NAT 费
@@ -39,7 +40,9 @@ aws --region <region> ec2 describe-subnets \
   --query 'Subnets[].{ID:SubnetId,AZ:AvailabilityZone,CIDR:CidrBlock,Name:Tags[?Key==`Name`]|[0].Value}' \
   --output table
 ```
-记下 3 个子网 ID 和它们的 AZ。
+记下 2（或 3）个子网 ID 和它们的 AZ。
+
+> **2-AZ 故障容忍说明**：默认 `keeper_placement` 把 2 个 Keeper 放在字典序小的 AZ（比如 az1a），1 个放在另一个 AZ（az1c）。挂 az1c 业务无感；**挂 az1a 会让 Keeper quorum 破，集群变 read-only**。对客户明确这点，再让他们签名。
 
 ### 0.2 Terraform state backend（S3 + DynamoDB）
 
@@ -110,12 +113,11 @@ $EDITOR terraform.tfvars
 # 目标 region
 region = "ap-southeast-1"
 
-# VPC + 子网（Step 0.1 记下的）
+# VPC + 子网（Step 0.1 记下的）—— 默认 2 AZ 部署
 vpc_id = "vpc-0xxxxxxxxxxxxxxxx"
 private_subnet_ids = {
-  "az1a" = "subnet-0xxxxxxxxxxxxxxxx"
-  "az1c" = "subnet-0xxxxxxxxxxxxxxxx"
-  "az1d" = "subnet-0xxxxxxxxxxxxxxxx"
+  "az1a" = "subnet-0xxxxxxxxxxxxxxxx"   # 字典序小的 AZ（默认放 2 Keepers + 1 CK）
+  "az1c" = "subnet-0xxxxxxxxxxxxxxxx"   # 另一个 AZ（默认放 1 Keeper + 1 CK）
 }
 
 # 命名（IAM role / SG / S3 bucket 全局作用域，换成客户代号避免冲突）
@@ -123,10 +125,22 @@ name_prefix   = "acme-ck"
 cluster_name  = "acme_ck"           # 不能含 '-' (ClickHouse 限制)
 owner         = "data-platform"
 environment   = "prod"
-
-# 内网 DNS
-private_hosted_zone_name = "internal.acme.com"
 ```
+
+> **要 3-AZ 对称容错**，追加：
+>
+> ```hcl
+> private_subnet_ids = {
+>   "az1a" = "subnet-xxx"
+>   "az1c" = "subnet-yyy"
+>   "az1d" = "subnet-zzz"
+> }
+> keeper_placement = {
+>   "keeper-01" = { subnet_key = "az1a", server_id = 1 }
+>   "keeper-02" = { subnet_key = "az1c", server_id = 2 }
+>   "keeper-03" = { subnet_key = "az1d", server_id = 3 }
+> }
+> ```
 
 **强烈建议项：**
 
@@ -162,7 +176,7 @@ terraform apply p.plan
 - 1 × S3 Gateway Endpoint
 - 3 × Keeper EC2 + root EBS
 - 2 × CK EC2 + root EBS + **1500 GB 数据 EBS**（带 `prevent_destroy`）
-- 1 × 内网 NLB + 2 × target group + listeners + Route53 private zone + A record
+- 1 × 内网 NLB + 2 × target group + listeners（**无 Route53**，客户端直连 NLB DNS）
 - 1 × S3 备份 bucket（SSE-S3 / versioning / public-access-block / lifecycle）
 - 2 × EventBridge rule（每日 incremental / 每周 full） + 2 × target
 - 7 × SSM Document（install-keeper / install-clickhouse / render-keeper-config / render-clickhouse-config / bootstrap-schema / run-backup / resize-data-volume）
@@ -216,17 +230,22 @@ aws --region <region> ssm get-parameter \
 6. EventBridge rules `ENABLED`
 7. SQL 基础连通（通过 SSM 跑 `SELECT 1`）
 
-VPC 内可直接连 CK：
+VPC 内可直接连 CK（通过 NLB DNS）：
 ```bash
 # 从 VPC 内的任意 EC2 / Lambda
-FQDN=$(terraform -chdir=terraform/envs/prod output -raw clickhouse_fqdn)
+NLB=$(terraform -chdir=terraform/envs/prod output -raw clickhouse_nlb_dns)
 PASS=$(aws --region <region> ssm get-parameter \
   --name "/<name_prefix>/default-user-password" \
   --with-decryption --query 'Parameter.Value' --output text)
 
-clickhouse-client --host "$FQDN" --user default --password "$PASS" \
+clickhouse-client --host "$NLB" --user default --password "$PASS" \
   --query 'SELECT version(), uptime()'
+
+# HTTP 亦可：
+# curl -u "default:$PASS" "http://${NLB}:8123/?query=SELECT+1"
 ```
+
+> 想要漂亮别名（`ck.acme.com`）？在你自己的 DNS 系统里加一条 CNAME 指向 `$NLB`。需要 Route53 alias record 可用 `terraform output nlb_zone_id` 拿 canonical zone id。
 
 ---
 

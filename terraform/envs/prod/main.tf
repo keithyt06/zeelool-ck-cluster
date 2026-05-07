@@ -38,13 +38,35 @@ locals {
   subnet_az = { for k, s in data.aws_subnet.private : k => s.availability_zone }
 
   # Per-node private IPs. Override map wins if non-empty; else auto-compute
-  # via cidrhost(subnet_cidr, offset). Works on any VPC CIDR (10.0 / 172.16 / 192.168).
+  # via cidrhost(subnet_cidr, offset + same-subnet-index). The same-subnet-index
+  # is 0 for the first (lexicographic-smallest) Keeper in a subnet, 1 for the
+  # second, etc. — so placing 2 Keepers in the same subnet yields distinct IPs
+  # (e.g. .100 and .101) without the operator having to pin explicit IPs.
+  #
+  # Works on any VPC CIDR (10.0 / 172.16 / 192.168).
+  keeper_same_subnet_index = {
+    for node_name, cfg in var.keeper_placement :
+    node_name => length([
+      for other_name, other_cfg in var.keeper_placement :
+      other_name if other_cfg.subnet_key == cfg.subnet_key && other_name < node_name
+    ])
+  }
+  clickhouse_same_subnet_index = {
+    for node_name, cfg in var.clickhouse_placement :
+    node_name => length([
+      for other_name, other_cfg in var.clickhouse_placement :
+      other_name if other_cfg.subnet_key == cfg.subnet_key && other_name < node_name
+    ])
+  }
   keeper_private_ips = {
     for node_name, cfg in var.keeper_placement :
     node_name => lookup(
       var.keeper_private_ips_override,
       node_name,
-      cidrhost(data.aws_subnet.private[cfg.subnet_key].cidr_block, var.keeper_ip_host_offset)
+      cidrhost(
+        data.aws_subnet.private[cfg.subnet_key].cidr_block,
+        var.keeper_ip_host_offset + local.keeper_same_subnet_index[node_name]
+      )
     )
   }
   clickhouse_private_ips = {
@@ -52,7 +74,10 @@ locals {
     node_name => lookup(
       var.clickhouse_private_ips_override,
       node_name,
-      cidrhost(data.aws_subnet.private[cfg.subnet_key].cidr_block, var.clickhouse_ip_host_offset)
+      cidrhost(
+        data.aws_subnet.private[cfg.subnet_key].cidr_block,
+        var.clickhouse_ip_host_offset + local.clickhouse_same_subnet_index[node_name]
+      )
     )
   }
 }
@@ -138,7 +163,6 @@ module "nlb" {
   subnet_ids          = [for k in local.nlb_subnet_keys : var.private_subnet_ids[k]]
   security_group_ids  = [module.network.nlb_sg_id]
   target_instance_ids = { for k, m in module.clickhouse : k => m.instance_id }
-  hosted_zone_name    = var.private_hosted_zone_name
 }
 
 module "backup_s3" {

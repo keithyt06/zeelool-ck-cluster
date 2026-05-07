@@ -21,13 +21,3 @@ variable "target_instance_ids" {
   type        = map(string)
   description = "Map of CK node name -> instance ID"
 }
-
-variable "hosted_zone_name" {
-  type = string
-}
-
-variable "dns_record_name" {
-  type        = string
-  default     = "clickhouse"
-  description = "Subdomain under hosted_zone_name"
-}

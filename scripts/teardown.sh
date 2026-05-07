@@ -20,7 +20,8 @@ cd "$(dirname "$0")/.."
 REPO_ROOT="$(pwd)"
 cd terraform/envs/prod
 
-INFO=$(terraform output -json cluster_info 2>/dev/null || echo '{}')
+INFO=$(terraform output -no-color -json cluster_info 2>/dev/null | sed '/^$/,$d')
+[ -z "$INFO" ] && INFO='{}'
 NAME_PREFIX=$(jq -r '.name_prefix // "<unknown>"' <<<"$INFO")
 REGION=$(jq -r '.region // "<unknown>"' <<<"$INFO")
 BUCKET=$(jq -r '.backup // "<unknown>"' <<<"$INFO")

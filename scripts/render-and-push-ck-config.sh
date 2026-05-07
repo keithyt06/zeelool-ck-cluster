@@ -157,8 +157,8 @@ for name in $(jq -r '.clickhouses | keys[]' <<<"$INFO"); do
   fi
 done
 
-FQDN=$(jq -r '.fqdn' <<<"$INFO")
+NLB_DNS=$(jq -r '.nlb_dns' <<<"$INFO")
 echo
-echo "Done. Verify:"
-echo "  clickhouse-client --host $FQDN --user default --password '<pass>' --query 'SELECT 1'"
+echo "Done. Verify (from a VPC-internal host):"
+echo "  clickhouse-client --host $NLB_DNS --user default --password '<pass>' --query 'SELECT 1'"
 echo "  (empty password should fail — confirms auth is active)"

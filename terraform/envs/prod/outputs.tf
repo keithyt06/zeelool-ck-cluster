@@ -47,12 +47,19 @@ output "clickhouse_private_ips" {
   value = { for k, m in module.clickhouse : k => m.private_ip }
 }
 
-output "clickhouse_fqdn" {
-  value = module.nlb.alias_fqdn
+output "clickhouse_nlb_dns" {
+  value       = module.nlb.dns_name
+  description = "AWS-owned NLB DNS name. Point clients at this host + port 9000 (native) or 8123 (HTTP)."
 }
 
 output "nlb_dns_name" {
-  value = module.nlb.dns_name
+  value       = module.nlb.dns_name
+  description = "Alias for clickhouse_nlb_dns. Kept for scripts that still reference this name."
+}
+
+output "nlb_zone_id" {
+  value       = module.nlb.zone_id
+  description = "Canonical hosted zone id of the NLB — pass to aws_route53_record.alias.zone_id if you want to wire a CNAME in your own DNS."
 }
 
 output "backup_bucket_name" {
@@ -72,7 +79,7 @@ output "cluster_info" {
     region       = var.region
     name_prefix  = var.name_prefix
     cluster_name = var.cluster_name
-    fqdn         = module.nlb.alias_fqdn
+    nlb_dns      = module.nlb.dns_name
     ssm_docs = {
       install_keeper           = module.ssm_documents.install_keeper_doc_name
       install_clickhouse       = module.ssm_documents.install_clickhouse_doc_name

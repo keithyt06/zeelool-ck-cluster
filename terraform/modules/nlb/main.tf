@@ -95,29 +95,6 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# Private hosted zone — create if missing, otherwise adopt via data source.
-resource "aws_route53_zone" "private" {
-  name = var.hosted_zone_name
-
-  vpc {
-    vpc_id = var.vpc_id
-  }
-
-  tags = { Name = var.hosted_zone_name }
-
-  lifecycle {
-    ignore_changes = [vpc]
-  }
-}
-
-resource "aws_route53_record" "alias" {
-  zone_id = aws_route53_zone.private.zone_id
-  name    = "${var.dns_record_name}.${var.hosted_zone_name}"
-  type    = "A"
-
-  alias {
-    name                   = aws_lb.this.dns_name
-    zone_id                = aws_lb.this.zone_id
-    evaluate_target_health = true
-  }
-}
+# No Route53 private zone — clients connect directly to the NLB's AWS-owned
+# DNS name (output `dns_name`). If a customer wants a pretty alias, they add
+# it in their own DNS system as a CNAME pointing at the NLB DNS.

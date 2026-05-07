@@ -53,13 +53,7 @@ variable "vpc_id" {
 
 variable "private_subnet_ids" {
   type        = map(string)
-  description = "Map of logical-AZ-key -> private subnet ID. Keys must include whatever you reference in keeper_placement / clickhouse_placement below (defaults: az1a, az1c, az1d)."
-}
-
-variable "private_hosted_zone_name" {
-  type        = string
-  default     = "internal.zeelool"
-  description = "Route53 private hosted zone name. Created if absent. Customers should use a domain they control (e.g. internal.acme.com)."
+  description = "Map of logical-AZ-key -> private subnet ID. Minimum 2 subnets for 2-AZ deployments. Keys must match whatever you reference in keeper_placement / clickhouse_placement below (defaults: az1a, az1c)."
 }
 
 # -------- Node placement (maps logical AZ keys to subnets + server_id) --------
@@ -71,10 +65,24 @@ variable "keeper_placement" {
   }))
   default = {
     "keeper-01" = { subnet_key = "az1a", server_id = 1 }
-    "keeper-02" = { subnet_key = "az1c", server_id = 2 }
-    "keeper-03" = { subnet_key = "az1d", server_id = 3 }
+    "keeper-02" = { subnet_key = "az1a", server_id = 2 }
+    "keeper-03" = { subnet_key = "az1c", server_id = 3 }
   }
-  description = "Keeper nodes, keyed by hostname/logical-name. subnet_key references a key in private_subnet_ids. server_id is the Raft ID (unique 1..N). 3 nodes = quorum survives 1 AZ loss."
+  description = <<-EOT
+    Keeper nodes, keyed by hostname/logical-name. subnet_key references a key
+    in private_subnet_ids. server_id is the Raft ID (unique 1..N).
+
+    Default is 2-AZ (2+1 split): az1a holds 2 Keepers, az1c holds 1 — matches
+    customers with only 2 private AZs available.
+
+    Fault tolerance is ASYMMETRIC with 2-AZ:
+      - Losing az1c (1 Keeper)  => 2/3 quorum survives, cluster writable.
+      - Losing az1a (2 Keepers) => only 1/3 Keepers left, quorum BROKEN,
+        cluster becomes READ-ONLY until az1a recovers.
+
+    For symmetric "any single AZ can fail" tolerance, run 3 Keepers across
+    3 distinct subnet_keys.
+  EOT
 }
 
 variable "clickhouse_placement" {
