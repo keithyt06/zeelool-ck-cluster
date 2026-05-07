@@ -1,165 +1,177 @@
-# ============================================================================
-# Customer-facing config TEMPLATE.
+# =============================================================================
+#  CUSTOMER CONFIG — terraform/envs/prod/terraform.tfvars
+# =============================================================================
+#  HOW TO USE THIS FILE
 #
-# THIS FILE IS THE TEMPLATE — do NOT edit in place. Workflow:
+#    cp terraform.tfvars.example terraform.tfvars
+#    $EDITOR terraform.tfvars
+#    # fill in sections marked [REQUIRED]
+#    # optionally change sections marked [RECOMMENDED]
+#    # leave [OPTIONAL] alone unless you have a specific reason
 #
-#   cd terraform/envs/prod
-#   cp terraform.tfvars.example terraform.tfvars
-#   $EDITOR terraform.tfvars          # fill in real vpc_id / subnets / names
-#   AWS_PROFILE=default terraform apply
+#  Tags used in this template:
+#    [REQUIRED]     must change before apply — defaults are placeholders
+#    [RECOMMENDED]  strongly suggest changing to your own values
+#    [OPTIONAL]     commented out; defaults in variables.tf are fine for MVP
 #
-# `terraform.tfvars` is git-ignored. Your real VPC / subnet / bucket values
-# live only on disk + in Terraform state — never in this committed template.
-#
-# Anything commented out below uses a sensible default from variables.tf.
-# Uncomment + change only the values you need to override.
-# ============================================================================
+#  `terraform.tfvars` is gitignored — your real values stay out of git.
+# =============================================================================
 
-# ---------- REQUIRED ----------
 
-# AWS region to deploy into. CK + Keeper + NLB + S3 bucket + SSM Documents all
-# land here. Choose the one nearest your MSK/writers and your BI tools.
-# region = "ap-southeast-1"
+# =============================================================================
+#  [REQUIRED]  VPC + subnets — fill these in
+# =============================================================================
 
-# Existing VPC you want to deploy into (the stack does NOT create a VPC).
-# CIDR is discovered automatically — any CIDR (10.0/172.16/192.168) works.
+# [REQUIRED] CHANGE THIS — Existing VPC ID in your AWS account.
+# The stack does NOT create a VPC. CIDR is auto-discovered.
 vpc_id = "vpc-XXXXXXXXXXXXXXXXX"
 
-# Private subnets — MINIMUM 2 AZs. The default keeper_placement below assumes
-# 2 AZs with a 2+1 split. If your customer has 3 AZs and you want symmetric
-# "any single AZ can fail" tolerance, provide 3 subnets and override
-# keeper_placement to put 1 Keeper per AZ.
+# [REQUIRED] CHANGE THIS — 2+ private subnet IDs, cross 2 AZs.
+# Keys (az1a / az1c) are logical names — change them if you want.
+# Rule: every subnet_key below (in keeper_placement etc) must exist in this map.
 #
-# Keys are logical AZ names YOU choose (az1a/az1b/az1c is conventional but not
-# required — the strings just need to match the `subnet_key` values in the
-# placement maps below).
-#
-# Ensure every listed subnet has a route to the internet (NAT or public IP) OR
-# a VPC endpoint for SSM (ssm, ssmmessages, ec2messages) — cloud-init and
-# SSM Agent can't bootstrap otherwise. This project creates the S3 gateway
-# endpoint for you, but NOT the SSM interface endpoints.
+# Each subnet MUST be able to reach SSM, via either:
+#   a) NAT Gateway (simplest, costs ~$45/mo per NAT)
+#   b) VPC interface endpoints for ssm/ssmmessages/ec2messages (more secure, cheaper)
 private_subnet_ids = {
   "az1a" = "subnet-XXXXXXXXXXXXXXXXX"
   "az1c" = "subnet-XXXXXXXXXXXXXXXXX"
 }
 
-# NLB DNS is AWS-managed (e.g. xxx.elb.<region>.amazonaws.com). The project
-# does NOT create a Route53 private zone — clients connect directly to the
-# NLB DNS output by `terraform output clickhouse_nlb_dns`. If you want a
-# prettier alias, add a CNAME in your own DNS system pointing at the NLB DNS.
 
-# ---------- IDENTITY / TAGGING ----------
+# =============================================================================
+#  [RECOMMENDED]  Region + AWS profile
+# =============================================================================
 
-# Used as a prefix on every named resource (IAM roles, SGs, NLB, EventBridge
-# rules, default S3 bucket). Change this when running multiple copies in the
-# same AWS account — IAM role and bucket names are globally scoped.
-# name_prefix = "acme-ck"
+# [RECOMMENDED] CHANGE THIS — AWS region. Default ap-northeast-1 (Tokyo).
+# Common values: ap-northeast-1, us-west-2, us-east-1, eu-west-1, ap-southeast-1.
+region = "ap-northeast-1"
 
-# ClickHouse internal cluster identifier. Can't contain '-' (CK limitation).
-# cluster_name = "acme_ck"
+# [RECOMMENDED] CHANGE THIS — AWS profile name from ~/.aws/credentials.
+# "default" works for most single-account setups. Pin explicitly so scripts
+# behave the same as interactive runs (avoids AWS_PROFILE env var confusion).
+profile = "default"
+
+
+# =============================================================================
+#  [RECOMMENDED]  Identity / naming
+# =============================================================================
+
+# [RECOMMENDED] CHANGE THIS — Prefix on every named resource (IAM roles, SGs,
+# NLB, EventBridge rules, default S3 bucket). IAM role and bucket names are
+# globally scoped, so multi-tenant accounts MUST use different prefixes.
+# Examples: "acme-ck", "ctrip-ck", "shennong-ck".
+name_prefix = "zeelool-ck"
+
+# [RECOMMENDED] CHANGE THIS — ClickHouse internal cluster identifier.
+# Appears in remote_servers.xml and system.clusters. Must be ASCII [a-z0-9_],
+# NO HYPHENS (ClickHouse limitation). Often: name_prefix with "-" → "_".
+cluster_name = "zeelool_ck"
+
+
+# =============================================================================
+#  [OPTIONAL]  Tagging — only if you have specific compliance tags
+# =============================================================================
 
 # owner       = "data-platform"
 # environment = "prod"
 # extra_tags  = { CostCenter = "analytics", Compliance = "none" }
 
-# ---------- TOPOLOGY ----------
 
-# Each entry is a CK Keeper node. The key becomes the EC2 Name tag AND the
-# hostname. subnet_key must be a key from private_subnet_ids above.
+# =============================================================================
+#  [OPTIONAL]  Topology — defaults work for 2-AZ setups
+# =============================================================================
+
+# DEFAULT = 2-AZ asymmetric (2 Keepers in az1a, 1 in az1c).
+# Fault tolerance: lose az1c → OK (2/3 quorum). Lose az1a → cluster READ-ONLY.
 #
-# DEFAULT (2-AZ, 2+1 split) — matches customers with only 2 private AZs:
-#   az1a: 2 Keepers (keeper-01 + keeper-02)
-#   az1c: 1 Keeper  (keeper-03)
-# Fault tolerance is ASYMMETRIC:
-#   - az1c fails => 2/3 quorum survives, cluster writable.
-#   - az1a fails => 1/3 Keepers left, quorum BROKEN, cluster READ-ONLY.
+# UNCOMMENT + MODIFY only if you need 3-AZ symmetric FT, or want different
+# replica / keeper counts.
+
 # keeper_placement = {
 #   "keeper-01" = { subnet_key = "az1a", server_id = 1 }
 #   "keeper-02" = { subnet_key = "az1a", server_id = 2 }
 #   "keeper-03" = { subnet_key = "az1c", server_id = 3 }
 # }
-#
-# FOR SYMMETRIC 3-AZ ("any single AZ can fail") — requires 3 subnets above:
+
+# FOR 3-AZ SYMMETRIC FT (any 1 AZ can fail) — requires 3 subnets above:
+# private_subnet_ids = {
+#   "az1a" = "subnet-..."
+#   "az1c" = "subnet-..."
+#   "az1d" = "subnet-..."
+# }
 # keeper_placement = {
 #   "keeper-01" = { subnet_key = "az1a", server_id = 1 }
 #   "keeper-02" = { subnet_key = "az1c", server_id = 2 }
 #   "keeper-03" = { subnet_key = "az1d", server_id = 3 }
 # }
 
-# Each entry is a CK replica. The key becomes both hostname and macros.replica.
-# 2 replicas in 2 AZs = survive 1 AZ loss. Scale up by adding ck-03/04/...
 # clickhouse_placement = {
 #   "ck-01" = { subnet_key = "az1a" }
 #   "ck-02" = { subnet_key = "az1c" }
 # }
 
-# ---------- PRIVATE IPs ----------
 
-# Auto-computed via cidrhost(subnet_cidr, offset) by default:
-#   Keeper = subnet + offset 100  (e.g. 10.0.11.0/24 -> 10.0.11.100)
-#   CK     = subnet + offset 200  (e.g. 10.0.11.0/24 -> 10.0.11.200)
-# Tweak offsets if those IPs collide with other workloads in your subnets.
+# =============================================================================
+#  [OPTIONAL]  Private IPs — auto-computed from subnet CIDRs by default
+# =============================================================================
+
+# Default auto-offset: Keeper = subnet+100, CK = subnet+200 (e.g. 10.0.11.100 / .200).
+# Multiple keepers in same subnet get +1 per index automatically (100, 101, ...).
+# Only set these if your subnet has workloads at those offsets.
+
 # keeper_ip_host_offset     = 100
 # clickhouse_ip_host_offset = 200
-#
-# Or pin specific IPs (must be inside the subnet CIDR and unreserved by AWS):
-# keeper_private_ips_override = {
-#   "keeper-01" = "10.0.11.50"
-#   ...
-# }
 
-# ---------- SIZING ----------
 
-# Keeper is lightweight — Raft + metadata, ~1% of CK traffic. Upshift only
-# if you run >50 replicated tables or very high mutation rates.
+# =============================================================================
+#  [OPTIONAL]  Instance sizing — defaults fit 100-500M rows/day workloads
+# =============================================================================
+
+# Keeper — t4g.small handles Raft for <50 replicated tables. Upshift only if
+# you run many replicated tables or very high mutation rates.
 # keeper_instance_type = "t4g.small"
 
-# ClickHouse — memory-optimized (Graviton4, 8 GB/vCPU) is strongly recommended.
+# ClickHouse — r8g (Graviton4, 8 GB/vCPU ratio CK recommends for warehousing).
 # Options (Tokyo on-demand / month / node):
 #   r8g.large     (2 vCPU / 16 GB)  ~$95   — MVP / <100M rows/day
-#   r8g.xlarge    (4 vCPU / 32 GB)  ~$208  — standard, 100M-500M rows/day
+#   r8g.xlarge    (4 vCPU / 32 GB)  ~$208  — default, 100M-500M rows/day
 #   r8g.2xlarge   (8 vCPU / 64 GB)  ~$416  — heavy BI, >500M rows/day
-# Don't use m8g (4 GB/vCPU) — CK's docs call for 8:1 on warehousing workloads.
+# DO NOT use m8g — 4 GB/vCPU is too tight; r8g.large = 16 GB is the floor.
 # clickhouse_instance_type = "r8g.xlarge"
 
-# ---------- EBS DATA VOLUME ----------
 
-# Per-node data volume size (gp3). Online-expandable. See plan Appendix C.
-# clickhouse_data_volume_gb = 1500
+# =============================================================================
+#  [OPTIONAL]  EBS data volume — 1500 GB gp3 default, online-expandable
+# =============================================================================
 
-# Override gp3 baseline (3000 IOPS / 125 MB/s) if ingest + merges saturate.
-# Inspect `iostat -x` on a CK node: %util > 80% consistently = bump.
-# clickhouse_data_volume_iops            = 4500  # 3000-16000
-# clickhouse_data_volume_throughput_mbps = 250   # 125-1000
+# Per-node data volume size. Expand online via SSM doc resize-data-volume.
+# ⚠ size / iops / throughput each have an AWS 6-hour cooldown. If you're
+#    changing multiple attrs, submit them in ONE apply.
+# clickhouse_data_volume_gb              = 1500
+# clickhouse_data_volume_iops            = 4500  # 3000-16000 (default baseline 3000)
+# clickhouse_data_volume_throughput_mbps = 250   # 125-1000   (default baseline 125)
 
-# ---------- SSH ACCESS ----------
 
-# AWS EC2 KeyPair name (just the name — the .pem file lives OUTSIDE this repo,
-# never commit private keys). null = no key attached, SSM Session Manager only.
-#
-# NOTE: `key_name` is a force-new EC2 attribute. Setting this on a fresh deploy
-# attaches the key at create time. On an ALREADY-RUNNING cluster, Terraform
-# will NOT recreate instances (they have `ignore_changes = [key_name]`) — run
-# `scripts/install-ssh-public-key.sh <path-to-pem>` instead to retrofit the
-# public key via SSM without touching the instances.
+# =============================================================================
+#  [OPTIONAL]  SSH access — SSM Session Manager covers 90% of use cases
+# =============================================================================
+
+# Attach EC2 KeyPair for SSH. null = no key, rely on SSM Session Manager (safer).
+# The .pem file MUST live outside this repo — commit only the AWS KeyPair NAME.
+# Retrofit a key to running nodes: scripts/install-ssh-public-key.sh <pem-path>
 # ssh_key_name = "my-ec2-keypair"
 
-# ---------- BACKUP ----------
 
-# Leave empty to auto-name as '<name_prefix>-backup-<account_id>-<region>'
-# (globally unique by construction). Pin a specific name if you have a
-# company naming convention or a pre-existing bucket.
+# =============================================================================
+#  [OPTIONAL]  Backup
+# =============================================================================
+
+# Bucket name — empty auto-names as <name_prefix>-backup-<account>-<region>
+# which is globally unique by construction. Pin if you have a naming convention.
 # backup_bucket_name = "acme-ck-backup"
 
-# Optional: SNS topic ARN for backup-failure notifications. When set, three
-# CloudWatch alarms (EB full + EB incremental + SSM run-backup) publish here
-# on failure. Leave empty to create the alarms silent (visible in CW console
-# but don't page anyone). Wire this to a PagerDuty / email / Slack SNS sink
-# once you have on-call set up.
+# SNS topic for backup-failure alarms. 3 CW alarms publish here if set.
+# Empty = alarms exist silent (visible in CW console, no paging).
+# Wire to PagerDuty / Slack / email SNS sink once on-call is set up.
 # backup_alarm_sns_topic_arn = "arn:aws:sns:<region>:<account>:acme-ck-oncall"
-
-# ---------- AWS AUTH ----------
-
-# Empty = use AWS_PROFILE env or instance profile / SSO. Set only if you have
-# a reason to pin a named profile in tfvars.
-# profile = "my-named-profile"
