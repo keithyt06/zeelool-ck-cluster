@@ -36,4 +36,8 @@ mainSteps:
         - "systemctl restart clickhouse-server"
         - "sleep 5"
         - "systemctl is-active clickhouse-server"
-        - "clickhouse-client --query 'SELECT 1'"
+        # Verify HTTP endpoint up. Use /ping (no auth) rather than
+        # `clickhouse-client --query 'SELECT 1'` — after users.d enables a password,
+        # the unauthenticated client would fail AUTHENTICATION_FAILED even though
+        # CK is healthy. Auth-aware smoke testing happens out-of-band in smoke.sh.
+        - "for i in $(seq 1 10); do curl -fsS http://127.0.0.1:8123/ping > /dev/null && exit 0; sleep 2; done; echo 'CK /ping never responded' >&2; exit 1"

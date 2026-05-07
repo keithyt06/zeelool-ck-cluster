@@ -16,7 +16,7 @@ cd "$(dirname "$0")/../terraform/envs/prod"
 # Terraform may append deprecation warnings after the JSON payload on stdout;
 # trim to the balanced top-level `{...}` block so jq doesn't choke.
 INFO=$(terraform output -no-color -json cluster_info 2>/dev/null \
-  | awk '/^{/{p=1} p{print} /^}$/{exit}')
+  | sed '/^$/,$d')
 REGION=$(jq -r '.region' <<<"$INFO")
 NAME_PREFIX=$(jq -r '.name_prefix' <<<"$INFO")
 CLUSTER_NAME=$(jq -r '.cluster_name' <<<"$INFO")
@@ -57,19 +57,31 @@ aws "${AWS_FLAGS[@]}" ssm get-command-invocation \
 echo
 echo "=== 4. CK replicas healthy ==="
 CK01=$(jq -r '.clickhouses | to_entries | sort_by(.key) | .[0].value.instance_id' <<<"$INFO")
-SQL_B64=$(base64 -w0 <<EOF
+# Fetch default user password from SSM (client-side, operator's machine).
+# clickhouse-client needs auth now that users.d/default-user enforces a password.
+# We inject it into the SSM SendCommand parameters — accepting the 30-day
+# SSM command-history retention as an acceptable exposure window, since the
+# password already lives in the same AWS account's SSM Parameter Store.
+PASS_PARAM="/${NAME_PREFIX}/default-user-password"
+PASS=$(aws "${AWS_FLAGS[@]}" ssm get-parameter --name "$PASS_PARAM" --with-decryption \
+  --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+if [ -z "$PASS" ] || [ "$PASS" = "None" ]; then
+  echo "  WARN: $PASS_PARAM missing — skipping §4 auth'd query."
+else
+  SQL_B64=$(base64 -w0 <<EOF
 SELECT host_name, is_local FROM system.clusters WHERE cluster = '${CLUSTER_NAME}' FORMAT TSV;
 EOF
-)
-CMD=$(aws "${AWS_FLAGS[@]}" ssm send-command \
-  --document-name "AWS-RunShellScript" \
-  --instance-ids "$CK01" \
-  --parameters "commands=[\"echo '${SQL_B64}' | base64 -d | clickhouse-client --multiquery\"]" \
-  --query 'Command.CommandId' --output text)
-aws "${AWS_FLAGS[@]}" ssm wait command-executed --command-id "$CMD" --instance-id "$CK01" 2>/dev/null || true
-aws "${AWS_FLAGS[@]}" ssm get-command-invocation \
-  --command-id "$CMD" --instance-id "$CK01" \
-  --query 'StandardOutputContent' --output text
+  )
+  CMD=$(aws "${AWS_FLAGS[@]}" ssm send-command \
+    --document-name "AWS-RunShellScript" \
+    --instance-ids "$CK01" \
+    --parameters "commands=[\"echo '${SQL_B64}' | base64 -d | clickhouse-client --user default --password '${PASS}' --multiquery\"]" \
+    --query 'Command.CommandId' --output text)
+  aws "${AWS_FLAGS[@]}" ssm wait command-executed --command-id "$CMD" --instance-id "$CK01" 2>/dev/null || true
+  aws "${AWS_FLAGS[@]}" ssm get-command-invocation \
+    --command-id "$CMD" --instance-id "$CK01" \
+    --query 'StandardOutputContent' --output text
+fi
 
 echo
 echo "=== 5. NLB target health ==="

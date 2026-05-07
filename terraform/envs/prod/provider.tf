@@ -1,12 +1,13 @@
 terraform {
-  # Pin to AWS provider v5.x — v6 has breaking changes on tags_all, default_tags
-  # propagation, and lifecycle semantics. Any v5.x >= 5.0 is fine.
+  # Pin to AWS provider v6.x. State on this backend was written by v6 (v6
+  # introduced per-resource `region` attributes v5 can't read), so downgrading
+  # breaks with "unsupported attribute" errors on every resource. Use v6.
   required_version = ">= 1.8"
 
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.0"
     }
   }
 

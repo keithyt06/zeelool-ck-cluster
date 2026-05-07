@@ -1,6 +1,9 @@
 <clickhouse>
     <users>
-        <default>
+        <!-- replace="1" — don't merge with the base users.xml's empty <password></password>.
+             Without this CH 25+ errors with "More than one field of 'password', 'password_sha256_hex'...
+             used to specify authentication info for user default" at startup. -->
+        <default replace="1">
             <password_sha256_hex>${default_password_sha256}</password_sha256_hex>
             <networks>
                 <ip>10.0.0.0/16</ip>

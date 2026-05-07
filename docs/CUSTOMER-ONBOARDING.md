@@ -274,11 +274,19 @@ aws --region "$REGION" ssm send-command \
 
 | 症状 | 原因 | 解法 |
 |---|---|---|
+| `terraform init`/`apply` 访问 state bucket 403 Forbidden | shell 里 `AWS_PROFILE=xxx` 压过意图（backend 不硬编码 profile） | `export AWS_PROFILE=default` 或每条命令前缀 `AWS_PROFILE=default ...` |
+| `terraform apply` 报 **InvalidPermission.Duplicate** 5 条 CIDR SG rule | 旧 inline rules 在 AWS 里但不在新 state（refactor 遗留） | `terraform import` 5 条到新资源 `aws_vpc_security_group_*_rule.*` 后 re-apply；已被新 SG-ref rules 覆盖的旧 CIDR rules 可 `aws ec2 revoke-security-group-ingress` 清理 |
+| `terraform plan` 报 `unsupported attribute "region"` on 现有 state | provider pin 低于 v6（state 由 v6 写入） | `provider.tf` `version = "~> 6.0"` + `terraform init -upgrade` |
 | `terraform apply` 报 `InvalidSubnet` / `AvailabilityZoneMismatch` | `subnet_key` 拼错或 VPC 不匹配 | 对齐 `private_subnet_ids` 的 key 和 `keeper_placement.subnet_key` |
 | `terraform apply` 报 bucket 名冲突 | `name_prefix` 撞到同账号其他项目 | 换 `name_prefix` 或显式指定 `backup_bucket_name` |
 | EC2 `Pending` 几分钟不进 `Running` | 子网无出网 | NAT 或 SSM interface endpoints 二选一（Step 0.1） |
-| bootstrap 脚本第 1/4 步失败（install SSM） | SSM Agent 还没上线 / VPC 不通 | 等 60-90 秒重跑；检查 `/var/log/amazon/ssm/*.log` |
-| bootstrap 第 3 步"quorum did not form" | Keeper SG 没放行自引用 9234 | 查 `<prefix>-keeper` SG 的 ingress 规则 |
+| bootstrap 脚本报 `jq: parse error` | `terraform output -json` 后跟 deprecation warning 被脚本读入 | 已修：所有脚本用 `sed '/^$/,$d'` 替代 awk。本仓库已更新，fork 老版需同步 |
+| bootstrap 第 1/4 步失败（install SSM） | SSM Agent 还没上线 / VPC 不通 | 等 60-90 秒重跑；检查 `/var/log/amazon/ssm/*.log` |
+| bootstrap 第 3 步 "quorum did not form" 但 keeper 日志健康 | Keeper `mntr` 输出用 TAB 分隔，旧脚本匹配 `=` | 已修：case 模式 `*zk_server_state*leader*\|*zk_server_state*follower*` |
+| bootstrap 第 3 步 "quorum did not form" 且 keeper 真的没起 | Keeper SG 没放行自引用 9234 | 查 `<prefix>-keeper` SG 的 ingress 规则 |
+| bootstrap 第 6 步 render-clickhouse-config 失败，journalctl 显示 `CANNOT_LOAD_CONFIG parseUser`+`More than one field of 'password'...` | `users.d/default-user` 缺 `replace="1"` → 基础 users.xml 的空 `<password>` + 新加 `<password_sha256_hex>` 同时被识别为 auth 字段 | 已修：模板加 `<default replace="1">` |
+| bootstrap 第 6 步 render stderr `AUTHENTICATION_FAILED` | SSM Document 最后一步 `clickhouse-client SELECT 1` 不带密码 | 已修：改为 `curl http://127.0.0.1:8123/ping`（无需 auth） |
+| smoke.sh §4 "CK replicas healthy" 输出空 | smoke 用 unauth 的 `clickhouse-client` | 已修：从 SSM Parameter Store 拉密码注入 |
 | NLB target `unhealthy` | CK 配置没下发（卡在 bootstrap 第 6 步前） | 把 bootstrap 跑完再看 |
 | BACKUP 报 `AccessDenied` | S3 gateway endpoint 没关联 CK 子网的路由表 | 模块自动处理；手动检查 `aws ec2 describe-vpc-endpoints` |
 | `ModifyVolume` 报 `VolumeModificationRateExceeded` | 撞到 6 小时冷却期 | 等，或拼一次把 size/IOPS/throughput 一次提交 |

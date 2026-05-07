@@ -20,7 +20,7 @@ cd terraform/envs/prod
 # Terraform may append deprecation warnings after JSON on stdout;
 # trim to the balanced top-level {...}.
 INFO=$(terraform output -no-color -json cluster_info 2>/dev/null \
-  | awk '/^{/{p=1} p{print} /^}$/{exit}')
+  | sed '/^$/,$d')
 
 if [ -z "$INFO" ]; then
   echo "ERROR: terraform output cluster_info is empty. Did you run 'terraform apply'?" >&2

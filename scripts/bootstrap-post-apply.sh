@@ -33,7 +33,7 @@ cd terraform/envs/prod
 # -------- Pull topology --------
 
 INFO=$(terraform output -no-color -json cluster_info 2>/dev/null \
-  | awk '/^{/{p=1} p{print} /^}$/{exit}')
+  | sed '/^$/,$d')
 
 if [ -z "$INFO" ]; then
   echo "ERROR: terraform output cluster_info is empty. Run 'terraform apply' first." >&2
@@ -128,8 +128,10 @@ for attempt in $(seq 1 12); do
     --command-id "$cmd" --instance-id "$KEEPER01_ID" \
     --query 'StandardOutputContent' --output text | tr -d '\r\n')
   echo "  attempt $attempt: $out"
+  # Keeper's mntr output separates key/value with TAB ("zk_server_state\tfollower"),
+  # not '='. Use wildcard *zk_server_state* to match both TAB and '=' forms.
   case "$out" in
-    *zk_server_state=leader*|*zk_server_state=follower*)
+    *zk_server_state*leader*|*zk_server_state*follower*)
       echo "  ✓ quorum formed"
       break
       ;;

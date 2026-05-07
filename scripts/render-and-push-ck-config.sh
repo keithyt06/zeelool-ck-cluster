@@ -30,7 +30,7 @@ cd terraform/envs/prod
 # Strip trailing deprecation warnings that terraform emits after the JSON
 # payload on stdout — keep only the balanced top-level {...} object.
 INFO=$(terraform output -no-color -json cluster_info 2>/dev/null \
-  | awk '/^{/{p=1} p{print} /^}$/{exit}')
+  | sed '/^$/,$d')
 REGION=$(jq -r '.region' <<<"$INFO")
 NAME_PREFIX=$(jq -r '.name_prefix' <<<"$INFO")
 CLUSTER_NAME=$(jq -r '.cluster_name' <<<"$INFO")

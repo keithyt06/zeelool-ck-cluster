@@ -102,3 +102,22 @@ scripts/
 1. **EBS ModifyVolume 6h 冷却** —— size/IOPS/throughput 要一起改的**同一次 apply** 提交
 2. **`default` 用户禁空密码** —— 部署流程由 `bootstrap-post-apply.sh` 强制生成并存 SSM SecureString
 3. **销毁走 `scripts/teardown.sh`**，别直接 `terraform destroy`（`prevent_destroy` 会挡）
+4. **`AWS_PROFILE` 环境变量优先级** —— backend 没硬编码 profile，`AWS_PROFILE=cc` 等环境变量会压过意图。deploy 前务必 `export AWS_PROFILE=default`（或直接 `AWS_PROFILE=default terraform apply`），否则 403 Forbidden 访问 state bucket。
+
+## 部署快速通道（profile=default，东京）
+
+```bash
+# 环境变量先于 terraform/scripts 生效 —— 不 export 的话，shell 里其他 profile 会抢
+export AWS_PROFILE=default
+
+cd terraform/envs/prod
+terraform init -upgrade       # 首次或 provider 变化后
+terraform plan -out=p.plan
+terraform apply p.plan
+
+cd ../..
+ACK_PASSWORD_SAVED=1 ./scripts/bootstrap-post-apply.sh  # 非交互跳过 press-Enter
+./scripts/smoke.sh
+```
+
+bootstrap 第一次会生成 32 字符密码并存 SSM Parameter Store `/<name_prefix>/default-user-password`。脚本会把密码 echo 到 stdout —— **此时必须从终端或日志里抓走存进密码库**，否则以后要用 `aws ssm get-parameter --with-decryption` 才拿得回。

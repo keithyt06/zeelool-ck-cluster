@@ -63,7 +63,7 @@ cd "$(dirname "$0")/../terraform/envs/prod"
 # Keep only lines from the first `{` up to (and including) the first `}` at
 # column 1 — that's the top-level closing brace of a pretty-printed JSON object.
 ALL=$(terraform output -no-color -json 2>/dev/null \
-  | awk '/^{/{p=1} p{print} /^}$/{exit}')
+  | sed '/^$/,$d')
 
 # Prefer the unified cluster_info output; fall back to the individual
 # pre-refactor outputs so this script works against older state that hasn't
