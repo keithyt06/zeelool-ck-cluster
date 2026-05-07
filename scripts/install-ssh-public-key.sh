@@ -75,8 +75,13 @@ if [ -n "$INFO" ]; then
 else
   REGION=$(jq -r '.region.value // empty' <<<"$ALL")
   if [ -z "$REGION" ]; then
-    REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-ap-northeast-1}}"
-    echo "(terraform state has no region output; assuming $REGION — override via AWS_REGION env)" >&2
+    REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+    if [ -z "$REGION" ]; then
+      echo "ERROR: terraform state has no region output and \$AWS_REGION/\$AWS_DEFAULT_REGION are unset." >&2
+      echo "       Export AWS_REGION=<your-region> and re-run. Never silently defaulting to Tokyo." >&2
+      exit 1
+    fi
+    echo "(terraform state has no region output; using \$AWS_REGION=$REGION)" >&2
   fi
   IDS_COMBINED=$(jq -c '
     ((.clickhouse_instance_ids.value // {}) + (.keeper_instance_ids.value // {}))

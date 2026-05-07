@@ -148,3 +148,75 @@ resource "aws_cloudwatch_event_target" "incremental" {
     BackupDate = ["<aws.events.event.ingestion-time>"]
   })
 }
+
+# -------- CloudWatch alarms --------
+#
+# Two alarms catch the common failure classes:
+#
+# 1. EventBridge FailedInvocations — when EB can't hand off to SSM (IAM drift,
+#    target instance terminated, SSM Document deleted). Fast signal: fires
+#    within minutes of the scheduled cron trigger.
+#
+# 2. SSM CommandsFailed on the run-backup document — when EB successfully
+#    invokes SSM but the backup command itself fails (CK down, S3 perms,
+#    disk full, base_backup mismatch on incremental). This is the "backup
+#    script ran and errored" case.
+#
+# Alarms are created regardless of whether a notification target is set.
+# If alarm_sns_topic_arn is empty, the alarm is visible in CloudWatch but
+# doesn't page anyone — good MVP default, zero cost.
+
+locals {
+  alarm_actions = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
+}
+
+resource "aws_cloudwatch_metric_alarm" "backup_eb_failures" {
+  for_each = {
+    full        = aws_cloudwatch_event_rule.full.name
+    incremental = aws_cloudwatch_event_rule.incremental.name
+  }
+
+  alarm_name          = "${var.name_prefix}-backup-${each.key}-eb-failed"
+  alarm_description   = "EventBridge rule ${each.value} failed to invoke SSM — usually IAM drift, missing instance, or deleted Document. Last-successful-backup chain at risk."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+
+  metric_name = "FailedInvocations"
+  namespace   = "AWS/Events"
+  period      = 300
+  statistic   = "Sum"
+  dimensions = {
+    RuleName = each.value
+  }
+
+  actions_enabled = var.alarm_actions_enabled
+  alarm_actions   = local.alarm_actions
+  ok_actions      = local.alarm_actions
+
+  tags = { Name = "${var.name_prefix}-backup-${each.key}-eb-failed" }
+}
+
+resource "aws_cloudwatch_metric_alarm" "backup_ssm_failures" {
+  alarm_name          = "${var.name_prefix}-backup-ssm-command-failed"
+  alarm_description   = "SSM RunCommand on ${var.run_backup_doc_name} failed. Backup did NOT complete — check command history + CK-node logs."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+
+  metric_name = "CommandsFailed"
+  namespace   = "AWS/SSM-RunCommand"
+  period      = 300
+  statistic   = "Sum"
+  dimensions = {
+    DocumentName = var.run_backup_doc_name
+  }
+
+  actions_enabled = var.alarm_actions_enabled
+  alarm_actions   = local.alarm_actions
+  ok_actions      = local.alarm_actions
+
+  tags = { Name = "${var.name_prefix}-backup-ssm-command-failed" }
+}

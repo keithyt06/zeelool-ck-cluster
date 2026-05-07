@@ -41,3 +41,17 @@ variable "full_retention_days" {
   type    = number
   default = 28
 }
+
+# -------- Alarms --------
+
+variable "alarm_sns_topic_arn" {
+  type        = string
+  default     = ""
+  description = "Optional SNS topic ARN to notify on backup alarms. Empty (default) creates the alarms but does NOT wire a notification action — alarms are still visible in CloudWatch console, just silent. Set this when you have an on-call pipeline (PagerDuty / Opsgenie / email list via SNS)."
+}
+
+variable "alarm_actions_enabled" {
+  type        = bool
+  default     = true
+  description = "Whether CloudWatch alarms are enabled. Useful to set false in dev environments where backup failures are expected during setup."
+}

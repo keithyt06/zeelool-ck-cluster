@@ -70,6 +70,11 @@ output "backup_bucket_arn" {
   value = module.backup_s3.bucket_arn
 }
 
+output "backup_alarm_names" {
+  value       = module.backup_s3.alarm_names
+  description = "CloudWatch alarm names for backup-failure detection (3 alarms: EB full/incremental FailedInvocations + SSM CommandsFailed). Silent unless backup_alarm_sns_topic_arn is set."
+}
+
 # -------- Scripts-friendly aggregate output --------
 # The single blob scripts consume for "give me everything you need to render
 # configs / run smoke tests without duplicating cluster topology anywhere else".
@@ -105,4 +110,26 @@ output "cluster_info" {
       }
     }
   }
+}
+
+# -------- Operator-facing connection hints --------
+# NOT sensitive — never includes the password. Just prints the exact commands
+# an operator runs to fetch the password from SSM and connect. Keeps onboarding
+# docs from going stale, and works across regions without edits.
+output "connection_hints" {
+  description = "How to fetch the default-user password from SSM and connect to the cluster via NLB. No secrets printed here."
+  value       = <<-EOT
+
+    # Fetch password (SecureString in SSM Parameter Store):
+    aws --region ${var.region} ssm get-parameter \
+      --name /${var.name_prefix}/default-user-password \
+      --with-decryption --query Parameter.Value --output text
+
+    # Native TCP 9000 (from VPC-internal host):
+    clickhouse-client --host ${module.nlb.dns_name} \
+      --user default --password "<pass>" --query 'SELECT 1'
+
+    # HTTP 8123:
+    curl -u "default:<pass>" "http://${module.nlb.dns_name}:8123/?query=SELECT+1"
+  EOT
 }

@@ -175,3 +175,9 @@ variable "backup_bucket_name" {
   default     = ""
   description = "S3 bucket for ClickHouse BACKUP TO S3. Leave empty to auto-name as '<name_prefix>-backup-<account_id>-<region>' (globally unique). Set explicitly if you have a naming convention or a pre-existing bucket."
 }
+
+variable "backup_alarm_sns_topic_arn" {
+  type        = string
+  default     = ""
+  description = "Optional SNS topic ARN to notify when a backup fails. Empty = alarms created but silent (visible only in CloudWatch console). Wire to PagerDuty / email list / Slack integration to actually page on-call. Two alarms are created: EventBridge FailedInvocations (EB→SSM hand-off failure) and SSM CommandsFailed (backup script errored on the node)."
+}

@@ -155,9 +155,12 @@ bootstrap 第一次会生成 32 字符密码并存 SSM Parameter Store `/<name_p
 集群没 Route53 private zone，客户端直连 NLB DNS：
 
 ```bash
+# region 和 name_prefix 都从 terraform 输出读，不硬编码 —— 换 region 也 work
+REGION=$(terraform -chdir=terraform/envs/prod output -raw region)
+NAME_PREFIX=$(terraform -chdir=terraform/envs/prod output -raw name_prefix)
 NLB=$(terraform -chdir=terraform/envs/prod output -raw clickhouse_nlb_dns)
-PASS=$(aws --region ap-northeast-1 ssm get-parameter \
-  --name /zeelool-ck/default-user-password --with-decryption \
+PASS=$(aws --region "$REGION" ssm get-parameter \
+  --name "/${NAME_PREFIX}/default-user-password" --with-decryption \
   --query Parameter.Value --output text)
 
 # Native TCP 9000（VPC 内）

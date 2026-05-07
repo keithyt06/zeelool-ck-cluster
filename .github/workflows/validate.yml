@@ -1,0 +1,73 @@
+name: validate
+
+# Runs on every PR + every push to main. Keeps trivial regressions (bad fmt,
+# unparseable HCL, shell syntax) out of the tree without needing AWS creds —
+# everything here is static analysis.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.x
+
+      - name: terraform fmt
+        run: terraform fmt -recursive -check -diff terraform/
+
+      # Each root module needs its own init before validate. We use -backend=false
+      # so CI doesn't need AWS credentials — validate is pure static check.
+      - name: terraform validate (bootstrap)
+        working-directory: terraform/bootstrap
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+      - name: terraform validate (envs/prod)
+        working-directory: terraform/envs/prod
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck scripts/*.sh
+
+  ssm-docs:
+    # SSM Documents are YAML — check they parse.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: validate SSM document YAML
+        run: |
+          python3 -c "
+          import sys, yaml, pathlib
+          errs = 0
+          for p in pathlib.Path('ssm-documents').glob('*.yml'):
+              try:
+                  yaml.safe_load(p.read_text())
+                  print(f'ok: {p}')
+              except yaml.YAMLError as e:
+                  print(f'FAIL: {p}: {e}', file=sys.stderr)
+                  errs += 1
+          sys.exit(1 if errs else 0)
+          "

@@ -151,6 +151,13 @@ private_subnet_ids = {
 # company naming convention or a pre-existing bucket.
 # backup_bucket_name = "acme-ck-backup"
 
+# Optional: SNS topic ARN for backup-failure notifications. When set, three
+# CloudWatch alarms (EB full + EB incremental + SSM run-backup) publish here
+# on failure. Leave empty to create the alarms silent (visible in CW console
+# but don't page anyone). Wire this to a PagerDuty / email / Slack SNS sink
+# once you have on-call set up.
+# backup_alarm_sns_topic_arn = "arn:aws:sns:<region>:<account>:acme-ck-oncall"
+
 # ---------- AWS AUTH ----------
 
 # Empty = use AWS_PROFILE env or instance profile / SSO. Set only if you have

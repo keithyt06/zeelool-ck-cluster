@@ -172,4 +172,5 @@ module "backup_s3" {
   bucket_name            = var.backup_bucket_name
   run_backup_doc_name    = module.ssm_documents.run_backup_doc_name
   ck_primary_instance_id = module.clickhouse[local.backup_executor_name].instance_id
+  alarm_sns_topic_arn    = var.backup_alarm_sns_topic_arn
 }

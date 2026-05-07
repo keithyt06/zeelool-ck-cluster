@@ -24,8 +24,13 @@ CLUSTER_NAME=$(jq -r '.cluster_name' <<<"$INFO")
 AWS_FLAGS=(--region "$REGION")
 if [ -n "${AWS_PROFILE:-}" ]; then AWS_FLAGS+=(--profile "$AWS_PROFILE"); fi
 
-echo "=== 0. Cluster ==="
+echo "=== 0. Cluster + identity ==="
+# Print the account + caller up front. Catches the "AWS_PROFILE=<stale>" foot-gun
+# before any of the SSM SendCommand calls below hit the wrong account.
+ACCOUNT=$(aws "${AWS_FLAGS[@]}" sts get-caller-identity --query Account --output text 2>/dev/null || echo "<STS FAILED>")
+CALLER_ARN=$(aws "${AWS_FLAGS[@]}" sts get-caller-identity --query Arn --output text 2>/dev/null || echo "<unknown>")
 echo "region=$REGION | prefix=$NAME_PREFIX | cluster=$CLUSTER_NAME"
+echo "account=$ACCOUNT | caller=$CALLER_ARN | profile=${AWS_PROFILE:-<ambient>}"
 
 echo
 echo "=== 1. Terraform outputs ==="

@@ -19,7 +19,7 @@ variable "name_prefix" {
 variable "state_bucket_name" {
   type        = string
   default     = ""
-  description = "S3 bucket for Terraform remote state. Empty = auto-name as '<name_prefix>-tfstate-<region-suffix>' (e.g. zeelool-ck-tfstate-apne1). S3 bucket names are globally unique — override when you need a company convention or the default collides."
+  description = "S3 bucket for Terraform remote state. Empty = auto-name as '<name_prefix>-tfstate-<region>' (e.g. zeelool-ck-tfstate-ap-northeast-1, zeelool-ck-tfstate-us-west-2). S3 bucket names are globally unique — override when you need a company convention or the default collides."
 }
 
 variable "lock_table_name" {

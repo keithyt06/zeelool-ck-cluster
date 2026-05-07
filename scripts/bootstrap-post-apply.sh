@@ -52,8 +52,19 @@ mapfile -t KEEPER_IDS < <(jq -r '.keepers     | to_entries | .[].value.instance_
 mapfile -t CK_IDS     < <(jq -r '.clickhouses | to_entries | .[].value.instance_id' <<<"$INFO")
 KEEPER01_ID=$(jq -r '.keepers | to_entries | sort_by(.value.server_id) | .[0].value.instance_id' <<<"$INFO")
 
+# -------- Identity sanity check --------
+# Print the account + region + profile we're about to act against. Operators
+# have burnt time running destructive ops against the wrong account because a
+# stale $AWS_PROFILE env var silently won — echoing this up front catches it
+# before any resource is touched. Cost: 1 STS call.
+ACCOUNT=$(aws "${AWS_FLAGS[@]}" sts get-caller-identity --query Account --output text 2>/dev/null || echo "<STS FAILED>")
+CALLER_ARN=$(aws "${AWS_FLAGS[@]}" sts get-caller-identity --query Arn --output text 2>/dev/null || echo "<unknown>")
+
 echo "============================================================"
 echo " Cluster bootstrap: $NAME_PREFIX ($REGION)"
+echo "   Account : $ACCOUNT"
+echo "   Caller  : $CALLER_ARN"
+echo "   Profile : ${AWS_PROFILE:-<ambient SDK chain>}"
 echo "   Keepers: ${#KEEPER_IDS[@]}  CKs: ${#CK_IDS[@]}"
 echo "============================================================"
 

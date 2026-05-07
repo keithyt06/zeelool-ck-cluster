@@ -12,8 +12,13 @@
 # `backend.hcl` is gitignored.
 # ============================================================================
 
-bucket         = "zeelool-ck-tfstate-ap-northeast-1"
+# Replace <region> with your AWS region, e.g.:
+#   ap-northeast-1 (Tokyo) → bucket = "zeelool-ck-tfstate-ap-northeast-1"
+#   us-west-2      (Oregon)→ bucket = "zeelool-ck-tfstate-us-west-2"
+# Or simpler: `terraform -chdir=../bootstrap output -raw backend_hcl > backend.hcl`
+# will render every value correctly for your deploy.
+bucket         = "zeelool-ck-tfstate-<region>"
 key            = "envs/prod/terraform.tfstate"
-region         = "ap-northeast-1"
+region         = "<region>"
 dynamodb_table = "zeelool-ck-tflock"
 encrypt        = true
