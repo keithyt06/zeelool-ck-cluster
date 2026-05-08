@@ -39,24 +39,36 @@ locals {
 
   # Per-node private IPs. Override map wins if non-empty; else auto-compute
   # via cidrhost(subnet_cidr, offset + same-subnet-index). The same-subnet-index
-  # is 0 for the first (lexicographic-smallest) Keeper in a subnet, 1 for the
-  # second, etc. — so placing 2 Keepers in the same subnet yields distinct IPs
-  # (e.g. .100 and .101) without the operator having to pin explicit IPs.
+  # is 0 for the first (lexicographic-smallest) node name in a subnet, 1 for
+  # the second, etc. — so placing 2 Keepers in the same subnet yields distinct
+  # IPs (e.g. .100 and .101) without the operator having to pin explicit IPs.
+  #
+  # HCL note: we use `sort(...)` + `index(...)` rather than `<` comparison
+  # because HCL's `<` operator is numeric-only — string comparison errors with
+  # "Unsuitable value for left operand: a number is required".
   #
   # Works on any VPC CIDR (10.0 / 172.16 / 192.168).
+  keeper_names_per_subnet = {
+    for subnet_key in distinct([for cfg in var.keeper_placement : cfg.subnet_key]) :
+    subnet_key => sort([
+      for node_name, cfg in var.keeper_placement :
+      node_name if cfg.subnet_key == subnet_key
+    ])
+  }
+  clickhouse_names_per_subnet = {
+    for subnet_key in distinct([for cfg in var.clickhouse_placement : cfg.subnet_key]) :
+    subnet_key => sort([
+      for node_name, cfg in var.clickhouse_placement :
+      node_name if cfg.subnet_key == subnet_key
+    ])
+  }
   keeper_same_subnet_index = {
     for node_name, cfg in var.keeper_placement :
-    node_name => length([
-      for other_name, other_cfg in var.keeper_placement :
-      other_name if other_cfg.subnet_key == cfg.subnet_key && other_name < node_name
-    ])
+    node_name => index(local.keeper_names_per_subnet[cfg.subnet_key], node_name)
   }
   clickhouse_same_subnet_index = {
     for node_name, cfg in var.clickhouse_placement :
-    node_name => length([
-      for other_name, other_cfg in var.clickhouse_placement :
-      other_name if other_cfg.subnet_key == cfg.subnet_key && other_name < node_name
-    ])
+    node_name => index(local.clickhouse_names_per_subnet[cfg.subnet_key], node_name)
   }
   keeper_private_ips = {
     for node_name, cfg in var.keeper_placement :
