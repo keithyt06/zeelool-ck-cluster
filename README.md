@@ -48,9 +48,9 @@ $EDITOR terraform/envs/prod/terraform.tfvars   # 填 vpc_id + private_subnet_ids
 ```
 terraform/
 ├── backend.tf                # 顶层 terraform block（provider version pin，legacy）
-├── bootstrap/                # 一次性创 state S3 bucket + DynamoDB lock 表（local state）
-│   ├── main.tf               # S3 + DDB 资源
-│   ├── variables.tf          # 可覆盖 bucket/table 名
+├── bootstrap/                # 一次性创 state backend（S3 bucket + S3 native lock，无 DynamoDB）
+│   ├── main.tf               # S3 bucket + versioning + SSE + PAB
+│   ├── variables.tf          # 可覆盖 bucket 名、prefix、region
 │   ├── outputs.tf            # backend_hcl output 直接喂给 envs/prod
 │   ├── provider.tf           # 无 backend 块（local state）
 │   ├── terraform.tfvars      # gitignored
@@ -181,5 +181,37 @@ clickhouse-client --host "$NLB" --user default --password "$PASS" --query 'SELEC
 # HTTP 8123
 curl -u "default:$PASS" "http://${NLB}:8123/?query=SELECT+1"
 ```
+
+## 用户管理（SQL，跨 replica 自动同步）
+
+`default` 用户是"root"账户 —— 密码由 bootstrap 生成、存 SSM、用 XML 渲染到节点。业务用户**不要**动 XML，用 SQL 建，自动走 Keeper 同步到两台 CK：
+
+```sql
+-- 建只读用户
+CREATE USER alice IDENTIFIED BY 'strong_pw_here' HOST ANY;
+GRANT SELECT ON default.* TO alice;
+
+-- 建 role 再授权（推荐）
+CREATE ROLE analytics_ro;
+GRANT SELECT ON *.* TO analytics_ro;
+CREATE USER bob IDENTIFIED BY 'bob_pw' HOST ANY;
+GRANT analytics_ro TO bob;
+
+-- 检查
+SELECT name, storage FROM system.users ORDER BY name;   -- 期望看到 storage = 'replicated'
+SELECT name, type FROM system.user_directories;          -- 期望 users_xml + replicated 两条
+
+-- 改密码 / 撤权 / 删用户
+ALTER USER alice IDENTIFIED BY 'new_pw';
+REVOKE SELECT ON default.secret_table FROM alice;
+DROP USER alice;
+```
+
+**背后机制**：
+- `default` 打开了 `access_management=1`，能跑所有 RBAC DDL
+- `config.d/access-control.xml` 声明 `<user_directories replace="1">`，两条 entry：`users_xml`（default 从这里读）+ `replicated`（SQL 写入这里，存 Keeper `/clickhouse/access/`）
+- 任意 replica `CREATE USER` → Keeper 持久化 → 另一 replica 自动拉取 → NLB 不管路由到哪台都认得新用户
+
+**不要**直接改 `config/clickhouse/users.d/default-user.xml.tftpl` 加业务用户 —— 走 SQL 路径。tftpl 只改 `default` 的权限设置或客户端网络 ACL。
 
 要漂亮别名（比如 `ck.acme.com`）？在你自己的 DNS 系统里加 CNAME 指到 `$NLB` 即可 —— 模块输出 `nlb_zone_id` 方便你在本地 Route53 建 alias record。

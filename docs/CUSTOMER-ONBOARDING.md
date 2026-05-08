@@ -14,7 +14,7 @@
 - `jq`
 - `openssl`, `ssh-keygen`（一般系统自带）
 
-**AWS 凭据**：`aws sts get-caller-identity` 能跑通。需要至少 EC2 / IAM / SSM / S3 / EventBridge / ELBv2 / DynamoDB 的读写权限。（**不需要 Route53 权限** —— v2 拓扑已去掉 private hosted zone，客户端直连 NLB DNS。）
+**AWS 凭据**：`aws sts get-caller-identity` 能跑通。需要至少 EC2 / IAM / SSM / S3 / EventBridge / ELBv2 / CloudWatch 的读写权限。（**不需要 Route53**：客户端直连 NLB DNS。**不需要 DynamoDB**：state lock 走 S3 native `use_lockfile`，Terraform 1.10+ 官方推荐，省掉一个 AWS resource。）
 
 ---
 
@@ -44,7 +44,7 @@ aws --region <region> ec2 describe-subnets \
 
 > **2-AZ 故障容忍说明**：默认 `keeper_placement` 把 2 个 Keeper 放在字典序小的 AZ（比如 az1a），1 个放在另一个 AZ（az1c）。挂 az1c 业务无感；**挂 az1a 会让 Keeper quorum 破，集群变 read-only**。对客户明确这点，再让他们签名。
 
-### 0.2 Terraform state backend（S3 + DynamoDB）
+### 0.2 Terraform state backend（S3 bucket，无 DynamoDB）
 
 Terraform 状态文件要存远端。**只需建一次，后续所有部署复用。** v3 把这一步纳入 terraform 管理 —— 跑 `terraform/bootstrap/` 模块自动创 S3 state bucket（lock 走 S3 native `use_lockfile=true`，**不再需要 DynamoDB**，符合 Terraform 1.10+ 官方推荐）。
 
@@ -234,7 +234,48 @@ clickhouse-client --host "$NLB" --user default --password "$PASS" \
 
 ---
 
-## Step 5：首次备份（可选，EventBridge 到点会自动跑）
+## Step 5：创建业务用户（SQL，跨 replica 自动同步）
+
+**不要**改 XML 模板来加业务用户。走 SQL 路径 —— 新用户存 Keeper，两个 CK replica 自动同步，NLB 路由到任一 replica 都认得。
+
+```bash
+# 接着上一步，$NLB + $PASS 已设
+NLB=$(terraform -chdir=terraform/envs/prod output -raw clickhouse_nlb_dns)
+PASS=$(aws --region <region> ssm get-parameter \
+  --name /<name_prefix>/default-user-password \
+  --with-decryption --query Parameter.Value --output text)
+
+# 建只读用户
+curl -u "default:$PASS" --data-binary \
+  "CREATE USER alice IDENTIFIED BY 'strong_pw_here' HOST ANY" \
+  "http://$NLB:8123/"
+
+curl -u "default:$PASS" --data-binary \
+  "GRANT SELECT ON default.* TO alice" \
+  "http://$NLB:8123/"
+
+# 验证 —— storage 应该是 'replicated'
+curl -u "default:$PASS" "http://$NLB:8123/?query=SELECT+name%2C+storage+FROM+system.users+FORMAT+PrettyCompact"
+```
+
+推荐用 **role** 做批量授权，变更集中：
+```sql
+CREATE ROLE analytics_ro;
+GRANT SELECT ON *.* TO analytics_ro;
+CREATE USER bob IDENTIFIED BY 'bob_pw' HOST ANY;
+GRANT analytics_ro TO bob;
+
+-- 日常改动
+ALTER USER alice IDENTIFIED BY 'new_pw';
+REVOKE SELECT ON default.secrets FROM alice;
+DROP USER bob;
+```
+
+**只有 `default`** 靠 XML + SSM Parameter 管（引导阶段 Keeper 还没起，鸡生蛋用的）。其他一切用户都走 SQL。
+
+---
+
+## Step 6：首次备份（可选，EventBridge 到点会自动跑）
 
 如果不想等到第一次 cron 触发，手动跑一次验证备份链路：
 
