@@ -95,24 +95,59 @@ say "Deployment complete"
 NLB_DNS=$(terraform -chdir=terraform/envs/prod output -raw clickhouse_nlb_dns)
 REGION=$(terraform -chdir=terraform/envs/prod output -raw region)
 NAME_PREFIX=$(terraform -chdir=terraform/envs/prod output -raw name_prefix)
+CLUSTER_NAME=$(terraform -chdir=terraform/envs/prod output -raw cluster_name)
+BACKUP_BUCKET=$(terraform -chdir=terraform/envs/prod output -raw backup_bucket_name 2>/dev/null || echo "<unset>")
+ACCOUNT_ID=$(aws --region "$REGION" sts get-caller-identity --query Account --output text 2>/dev/null || echo "<unknown>")
+
+# Fetch the generated password from SSM. Printed inline so the operator has
+# everything in one block — same password is already stored in SSM Parameter
+# Store (SecureString), so re-reading it anytime via `aws ssm get-parameter`
+# gives the same value. If the current stdout is piped to a log file, make
+# sure access to that log is controlled.
+PASS=$(aws --region "$REGION" ssm get-parameter \
+  --name "/${NAME_PREFIX}/default-user-password" \
+  --with-decryption --query Parameter.Value --output text 2>/dev/null \
+  || echo "<fetch-failed — run the command under 'Fetch password' below>")
+
 cat <<SUMMARY
 
-  NLB DNS:       $NLB_DNS
-  Region:        $REGION
-  Name prefix:   $NAME_PREFIX
+  ─────────────────── CLUSTER INFO ───────────────────
+  AWS account    : $ACCOUNT_ID
+  Region         : $REGION
+  Name prefix    : $NAME_PREFIX
+  Cluster name   : $CLUSTER_NAME
 
-  Fetch default-user password:
-    aws --region $REGION ssm get-parameter \\
-      --name /$NAME_PREFIX/default-user-password \\
-      --with-decryption --query Parameter.Value --output text
+  ─────────────────── CONNECT ────────────────────────
+  NLB DNS        : $NLB_DNS
+  Native TCP     : $NLB_DNS:9000
+  HTTP           : $NLB_DNS:8123
 
-  Connect (from a VPC-internal host):
-    clickhouse-client --host $NLB_DNS --user default --password '<pass>' --query 'SELECT 1'
+  Username       : default
+  Password       : $PASS
 
-  CloudWatch alarm names:
-    terraform -chdir=terraform/envs/prod output backup_alarm_names
+  Example (from a VPC-internal host):
+    clickhouse-client --host $NLB_DNS \\
+      --user default --password '$PASS' \\
+      --query 'SELECT version(), hostName()'
 
-  Teardown (destructive):
-    ./scripts/teardown.sh
+    curl -u "default:$PASS" \\
+      "http://$NLB_DNS:8123/?query=SELECT+1"
 
+  ─────────────────── REFETCH PASSWORD (if lost) ─────
+  aws --region $REGION ssm get-parameter \\
+    --name /$NAME_PREFIX/default-user-password \\
+    --with-decryption --query Parameter.Value --output text
+
+  ─────────────────── BACKUP ─────────────────────────
+  Bucket         : $BACKUP_BUCKET
+  Schedule       : full Sun 17:00 UTC · incremental MON-SAT 17:00 UTC
+  Alarms         : terraform -chdir=terraform/envs/prod output backup_alarm_names
+
+  ─────────────────── TEARDOWN (destructive) ─────────
+  ./scripts/teardown.sh
+
+  ⚠ Password is printed above in clear text. If this terminal output is
+    captured in a log / CI artifact, review access control on that artifact.
+    Rotate the password by writing a new value to the SSM parameter and
+    re-running ./scripts/render-and-push-ck-config.sh.
 SUMMARY
