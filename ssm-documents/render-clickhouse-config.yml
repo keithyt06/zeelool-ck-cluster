@@ -19,6 +19,9 @@ parameters:
   ListenXml:
     type: String
     description: "base64 of listen.xml (listen_host + listen_try). Shared across all nodes."
+  AccessControlXml:
+    type: String
+    description: "base64 of access-control.xml (user_directories.replicated — SQL-managed users replicate via Keeper)."
 mainSteps:
   - name: writeConfigs
     action: aws:runShellScript
@@ -31,6 +34,7 @@ mainSteps:
         - "echo '{{ MacrosXml }}' | base64 -d > /etc/clickhouse-server/config.d/macros.xml"
         - "echo '{{ InterserverXml }}' | base64 -d > /etc/clickhouse-server/config.d/interserver.xml"
         - "echo '{{ ListenXml }}' | base64 -d > /etc/clickhouse-server/config.d/listen.xml"
+        - "echo '{{ AccessControlXml }}' | base64 -d > /etc/clickhouse-server/config.d/access-control.xml"
         - "echo '{{ UsersXml }}' | base64 -d > /etc/clickhouse-server/users.d/default-user.xml"
         - "chown -R clickhouse:clickhouse /etc/clickhouse-server"
         - "systemctl restart clickhouse-server"

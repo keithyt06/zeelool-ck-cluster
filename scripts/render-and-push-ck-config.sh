@@ -130,6 +130,7 @@ RS_B64=$(base64 -w0 "$TMP/remote-servers.xml")
 ZK_B64=$(base64 -w0 "$TMP/zookeeper.xml")
 USERS_B64=$(base64 -w0 "$TMP/default-user.xml")
 LISTEN_B64=$(base64 -w0 "$REPO_ROOT/config/clickhouse/config.d/listen.xml")
+ACCESS_B64=$(base64 -w0 "$REPO_ROOT/config/clickhouse/config.d/access-control.xml")
 
 for name in $(jq -r '.clickhouses | keys[]' <<<"$INFO"); do
   iid=$(jq -r --arg n "$name" '.clickhouses[$n].instance_id' <<<"$INFO")
@@ -139,7 +140,7 @@ for name in $(jq -r '.clickhouses | keys[]' <<<"$INFO"); do
   cmd=$(aws "${AWS_FLAGS[@]}" ssm send-command \
     --document-name "$RENDER_DOC" \
     --instance-ids "$iid" \
-    --parameters "RemoteServersXml=${RS_B64},ZookeeperXml=${ZK_B64},MacrosXml=${macros_b64},InterserverXml=${inter_b64},ListenXml=${LISTEN_B64},UsersXml=${USERS_B64}" \
+    --parameters "RemoteServersXml=${RS_B64},ZookeeperXml=${ZK_B64},MacrosXml=${macros_b64},InterserverXml=${inter_b64},ListenXml=${LISTEN_B64},AccessControlXml=${ACCESS_B64},UsersXml=${USERS_B64}" \
     --query 'Command.CommandId' --output text)
   echo "$name ($iid) → cmd=$cmd"
 

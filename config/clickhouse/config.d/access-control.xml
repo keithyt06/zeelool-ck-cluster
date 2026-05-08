@@ -1,0 +1,26 @@
+<clickhouse>
+    <!-- SQL-managed users + grants replicate across both CK nodes via Keeper.
+         Without this, `CREATE USER` on ck-01 creates the user only on ck-01;
+         the NLB might route a subsequent connection to ck-02 → auth fails.
+         With replicated: user metadata stored at /clickhouse/access/ in Keeper,
+         auto-synced to every replica.
+
+         `users_xml` kept first so the bootstrap `default` user from
+         users.d/default-user.xml still works (XML-defined users take
+         precedence for reads). `replicated` is last → new SQL writes land there. -->
+    <!-- replace="1" — REPLACE (not merge) base config.xml's <user_directories>.
+         Without replace, CH merges our block into its default, which includes
+         <local_directory> between users_xml and replicated. CH picks the FIRST
+         WRITABLE directory as the SQL write target, so local_directory wins →
+         CREATE USER lands per-node, NEVER hitting Keeper. With replace=1 we
+         get exactly 2 entries: users_xml (read-only) + replicated → replicated
+         is the only writable → all SQL writes sync via Keeper across replicas. -->
+    <user_directories replace="1">
+        <users_xml>
+            <path>users.xml</path>
+        </users_xml>
+        <replicated>
+            <zookeeper_path>/clickhouse/access/</zookeeper_path>
+        </replicated>
+    </user_directories>
+</clickhouse>
